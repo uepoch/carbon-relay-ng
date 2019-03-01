@@ -1,8 +1,13 @@
 language: go
-
-go: "1.10.x"
-
+go: 1.10.x
 go_import_path: github.com/graphite-ng/carbon-relay-ng
-
 before_install:
-  - go get -u github.com/go-bindata/go-bindata/...
+- go get -u github.com/go-bindata/go-bindata/...
+deploy:
+  provider: releases
+  api_key:
+    secure: do6tKXOFsfk0ckklH6mkqHfBZ5A9K0EKtu7wkWijbmDkJIQSaeNrKMz/xYD6f6rzWQZGLIZxR3GB6tNf1A39TeptNkb/4vbuoLXGtIVbXRtgTH+Osr4txI4BmbQoZLDMmFqCLOgeSneS0v7u/TwEZSUsPG9p42rzmEfA0L8CsQs0l6SmHL7qo7IKiPmVBH6BwtiHhjLZOLP/h2SGAyzd2JB8TRJgIAX6d8uqEqv0a0JRkFvREg7TKVzNLQNqiKPYsb4g9GMxqjgIRnQcFXRRzAeCyvW4Iq7U6WcQ5LgMF5kiu5Qc/bzJ92OaOTFe3ovHHJMX8GqCH2pDQQu6QCSrFeKrAh71te4fTu+vfoN0z2BRsh0D99fy5w1ByrVKya6dAKZ9wiWYJWRXqxFvjHzmp6Qj+K4LGfjqxcuhUgOFqyNMYQpba1r7tjhDLLIoVuMZbweLIzKOG1FFN1B4O7GyrTcGh0+t4+NgwMmv1ms/HzKiyubmvWigMT3wxeRMlG0iV4CzD9KGE7rQn6oXuPAHwhSI3vX9egQJVuYyPHmD9zZllmM/k225ukeZPm/lgHVnu+xsK74L+ZTwvsObeM9ojpGwPMFYPqGoPFOaPh+SDkodyKW4ZteClkKAxi5xARD2WP5lOc05I0tJN8wHUdsh1+KtbTbP6U5ZUUq9uG5i7Fk=
+  file: carbon-relay-ng
+  on:
+    tags: true
+    repo: criteo-forks/carbon-relay-ng
