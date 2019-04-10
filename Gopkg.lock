@@ -89,6 +89,14 @@
   version = "v1.15.54"
 
 [[projects]]
+  branch = "master"
+  digest = "1:707ebe952a8b3d00b343c01536c79c73771d100f63ec6babeaed5c79e2b8a8dd"
+  name = "github.com/beorn7/perks"
+  packages = ["quantile"]
+  pruneopts = "NUT"
+  revision = "3a771d992973f24aa725d07868b467d1ddfceafb"
+
+[[projects]]
   digest = "1:433a2ff0ef4e2f8634614aab3174783c5ff80120b487712db96cc3712f409583"
   name = "github.com/bmizerany/assert"
   packages = ["."]
@@ -243,6 +251,14 @@
   revision = "bb797dc4fb8320488f47bf11de07a733d7233e1f"
 
 [[projects]]
+  digest = "1:5985ef4caf91ece5d54817c11ea25f182697534f8ae6521eadcd628c142ac4b6"
+  name = "github.com/matttproud/golang_protobuf_extensions"
+  packages = ["pbutil"]
+  pruneopts = "NUT"
+  revision = "c12348ce28de40eed0136aa2b644d0ee0650e56c"
+  version = "v1.0.1"
+
+[[projects]]
   branch = "master"
   digest = "1:fbf2e13dbd89ee228a027b6f49cc139731496b7e910d458d0ff95f95fe3c6250"
   name = "github.com/metrics20/go-metrics20"
@@ -279,6 +295,45 @@
   pruneopts = "NUT"
   revision = "792786c7400a136282c1664665ae0a8db921c6c2"
   version = "v1.0.0"
+
+[[projects]]
+  digest = "1:00e5485f002096d8284d57ce59acb8e08121a5accdf92777ca7368bf9e5e18e8"
+  name = "github.com/prometheus/client_golang"
+  packages = [
+    "prometheus",
+    "prometheus/internal",
+  ]
+  pruneopts = "NUT"
+  revision = "505eaef017263e299324067d40ca2c48f6a2cf50"
+  version = "v0.9.2"
+
+[[projects]]
+  branch = "master"
+  digest = "1:2d5cd61daa5565187e1d96bae64dbbc6080dacf741448e9629c64fd93203b0d4"
+  name = "github.com/prometheus/client_model"
+  packages = ["go"]
+  pruneopts = "NUT"
+  revision = "fd36f4220a901265f90734c3183c5f0c91daa0b8"
+
+[[projects]]
+  digest = "1:4e776079b966091d3e6e12ed2aaf728bea5cd1175ef88bb654e03adbf5d4f5d3"
+  name = "github.com/prometheus/common"
+  packages = [
+    "expfmt",
+    "internal/bitbucket.org/ww/goautoneg",
+    "model",
+  ]
+  pruneopts = "NUT"
+  revision = "a82f4c12f983cc2649298185f296632953e50d3e"
+  version = "v0.3.0"
+
+[[projects]]
+  branch = "master"
+  digest = "1:7813f698f171bd7132b123364433e1b0362f7fdb4ed7f4a20df595a4c2410f8a"
+  name = "github.com/prometheus/procfs"
+  packages = ["."]
+  pruneopts = "NUT"
+  revision = "ea9eea63887261e4d8ed8315f4078e88d540c725"
 
 [[projects]]
   digest = "1:702871fd067843dac45acf878c75d14fea30ad6084c93a9babfbf79fc9369a61"
@@ -524,6 +579,7 @@
     "github.com/jpillora/backoff",
     "github.com/kisielk/og-rek",
     "github.com/metrics20/go-metrics20/carbon20",
+    "github.com/prometheus/client_golang/prometheus",
     "github.com/raintank/metrictank/cluster/partitioner",
     "github.com/sirupsen/logrus",
     "github.com/streadway/amqp",
