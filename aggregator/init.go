@@ -5,15 +5,17 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Dieterbe/go-metrics"
-	"github.com/graphite-ng/carbon-relay-ng/stats"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
 )
 
-var numTooOld metrics.Counter
+var counterTooOldMetrics = promauto.NewCounter(prometheus.CounterOpts{
+	Name: "aggregator_metrics_too_old_total",
+	Help: "The total number of metrics that couldn't be aggregated because of their age",
+})
 var rangeTracker *RangeTracker
 
 func InitMetrics() {
-	numTooOld = stats.Counter("module=aggregator.unit=Metric.what=TooOld")
 	rangeTracker = NewRangeTracker()
 }
 
@@ -21,15 +23,21 @@ type RangeTracker struct {
 	sync.Mutex
 	min  uint32
 	max  uint32
-	minG metrics.Gauge
-	maxG metrics.Gauge
+	minG prometheus.Gauge
+	maxG prometheus.Gauge
 }
 
 func NewRangeTracker() *RangeTracker {
 	m := &RangeTracker{
-		min:  math.MaxUint32,
-		minG: stats.Gauge("module=aggregator.unit=s.what=timestamp_received.type=min"),
-		maxG: stats.Gauge("module=aggregator.unit=s.what=timestamp_received.type=max"),
+		min: math.MaxUint32,
+		minG: promauto.NewGauge(prometheus.GaugeOpts{
+			Name: "aggregator_timestamp_received_min",
+			Help: "The oldest timestamp that was received by the aggregator",
+		}),
+		maxG: promauto.NewGauge(prometheus.GaugeOpts{
+			Name: "aggregator_timestamp_received_max",
+			Help: "The newest timestamp that was received by the aggregator",
+		}),
 	}
 	go m.Run()
 	return m
@@ -50,8 +58,8 @@ func (m *RangeTracker) Run() {
 			max = min
 		}
 
-		m.minG.Update(int64(min))
-		m.maxG.Update(int64(max))
+		m.minG.Set(float64(min))
+		m.maxG.Set(float64(max))
 	}
 }
 

@@ -144,13 +144,13 @@ func (a *Aggregator) AddOrCreate(key string, ts uint32, quantized uint, value fl
 		// we never recreate a previously created bucket (and reflush with same key and ts)
 		// a consequence of this is, that if your data stream runs consistently significantly behind
 		// real time, it may never be included in aggregates, but it's up to you to configure your wait
-		// parameter properly. You can use the rangeTracker and numTooOld metrics to help with this
+		// parameter properly. You can use the rangeTracker and counterTooOldMetrics metrics to help with this
 		if quantized > uint(a.now().Unix())-a.Wait {
 			proc = a.procConstr(value, ts)
 			a.aggregations[k] = proc
 			return
 		}
-		numTooOld.Inc(1)
+		counterTooOldMetrics.Inc()
 	}
 }
 
