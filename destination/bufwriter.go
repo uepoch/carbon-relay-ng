@@ -10,10 +10,15 @@ import (
 	"io"
 	"time"
 
-	"github.com/Dieterbe/go-metrics"
-	"github.com/graphite-ng/carbon-relay-ng/stats"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
 	log "github.com/sirupsen/logrus"
 )
+
+var durationOverflowFlush = promauto.NewCounterVec(prometheus.CounterOpts{
+	Name: "destination_overflow_flush_duration_sum",
+	Help: "The total duration to perform flush",
+}, []string{"destination"})
 
 // Writer implements buffering for an io.Writer object.
 // If an error occurs writing to a Writer, no more data will be
@@ -22,12 +27,11 @@ import (
 // Flush method to guarantee all data has been forwarded to
 // the underlying io.Writer.
 type Writer struct {
-	key                   string
-	err                   error
-	buf                   []byte
-	n                     int
-	wr                    io.Writer
-	durationOverflowFlush metrics.Timer
+	key string
+	err error
+	buf []byte
+	n   int
+	wr  io.Writer
 }
 
 // NewWriterSize returns a new Writer whose buffer has at least the specified
@@ -41,7 +45,6 @@ func NewWriter(w io.Writer, size int, key string) *Writer {
 		key: key,
 		buf: make([]byte, size),
 		wr:  w,
-		durationOverflowFlush: stats.Timer("dest=" + key + ".what=durationFlush.type=overflow"),
 	}
 }
 
@@ -100,13 +103,13 @@ func (b *Writer) Write(p []byte) (nn int, err error) {
 			start := time.Now()
 			log.Tracef("bufWriter %s writing to tcp %s", b.key, p)
 			n, b.err = b.wr.Write(p)
-			b.durationOverflowFlush.UpdateSince(start)
+			durationOverflowFlush.WithLabelValues(b.key).Add(time.Since(start).Seconds())
 		} else {
 			n = copy(b.buf[b.n:], p)
 			b.n += n
-			b.durationOverflowFlush.Time(func() {
-				b.flush()
-			})
+			start := time.Now()
+			b.flush()
+			durationOverflowFlush.WithLabelValues(b.key).Add(time.Since(start).Seconds())
 		}
 		nn += n
 		p = p[n:]
