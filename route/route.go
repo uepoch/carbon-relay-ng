@@ -8,8 +8,32 @@ import (
 
 	dest "github.com/graphite-ng/carbon-relay-ng/destination"
 	"github.com/graphite-ng/carbon-relay-ng/matcher"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
 	log "github.com/sirupsen/logrus"
 )
+
+// Metrics
+var outSuccessCounter = promauto.NewCounterVec(prometheus.CounterOpts{
+	Name: "route_metrics_out_total",
+	Help: "The total number of metrics ",
+}, []string{"route"})
+
+var routeErrCounter = promauto.NewCounterVec(prometheus.CounterOpts{
+	Name: "route_error_total",
+	Help: "The total number of errors",
+}, []string{"route", "type"})
+
+var routeBufferedMetricsGauge = promauto.NewGaugeVec(prometheus.GaugeOpts{
+	Name: "route_buffered_metrics",
+	Help: "The current number of buffered metrics",
+}, []string{"route"})
+
+// numDropBuffFull       metrics.Counter   // metric drops due to queue full
+// durationTickFlush     metrics.Timer     // only updated after successful flush
+// tickFlushSize         metrics.Histogram // only updated after successful flush
+// numBuffered           metrics.Gauge
+// bufferSize            metrics.Gauge
 
 type Config interface {
 	Matcher() *matcher.Matcher

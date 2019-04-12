@@ -29,7 +29,7 @@ type KafkaMdm struct {
 	partitioner *partitioner.Kafka
 	schemas     persister.WhisperSchemas
 	blocking    bool
-	dispatch    func(chan []byte, []byte, metrics.Gauge, metrics.Counter)
+	dispatch    func(chan []byte, []byte)
 
 	orgId int // organisation to publish data under
 
@@ -37,14 +37,11 @@ type KafkaMdm struct {
 	flushMaxNum  int
 	flushMaxWait time.Duration
 
-	numErrFlush       metrics.Counter
-	numOut            metrics.Counter   // metrics successfully written to kafka
 	numDropBuffFull   metrics.Counter   // metric drops due to queue full
 	durationTickFlush metrics.Timer     // only updated after successful flush
 	durationManuFlush metrics.Timer     // only updated after successful flush. not implemented yet
 	tickFlushSize     metrics.Histogram // only updated after successful flush
 	manuFlushSize     metrics.Histogram // only updated after successful flush. not implemented yet
-	numBuffered       metrics.Gauge
 	bufferSize        metrics.Gauge
 }
 
@@ -75,13 +72,10 @@ func NewKafkaMdm(key, prefix, sub, regex, topic, codec, schemasFile, partitionBy
 		flushMaxNum:  flushMaxNum,
 		flushMaxWait: time.Duration(flushMaxWait) * time.Millisecond,
 
-		numErrFlush:       stats.Counter("dest=" + cleanAddr + ".unit=Err.type=flush"),
-		numOut:            stats.Counter("dest=" + cleanAddr + ".unit=Metric.direction=out"),
 		durationTickFlush: stats.Timer("dest=" + cleanAddr + ".what=durationFlush.type=ticker"),
 		durationManuFlush: stats.Timer("dest=" + cleanAddr + ".what=durationFlush.type=manual"),
 		tickFlushSize:     stats.Histogram("dest=" + cleanAddr + ".unit=B.what=FlushSize.type=ticker"),
 		manuFlushSize:     stats.Histogram("dest=" + cleanAddr + ".unit=B.what=FlushSize.type=manual"),
-		numBuffered:       stats.Gauge("dest=" + cleanAddr + ".unit=Metric.what=numBuffered"),
 		bufferSize:        stats.Gauge("dest=" + cleanAddr + ".unit=Metric.what=bufferSize"),
 		numDropBuffFull:   stats.Counter("dest=" + cleanAddr + ".unit=Metric.action=drop.reason=queue_full"),
 	}
@@ -169,7 +163,7 @@ func (r *KafkaMdm) run() {
 			diff := time.Since(pre)
 			if err == nil {
 				log.Debugf("KafkaMdm %q: sent %d metrics in %s - msg size %d", r.key, len(metrics), diff, size)
-				r.numOut.Inc(int64(len(metrics)))
+				outSuccessCounter.WithLabelValues("kafkamdm").Add(float64((len(metrics))))
 				r.tickFlushSize.Update(int64(size))
 				r.durationTickFlush.Update(diff)
 				metrics = metrics[:0]
@@ -184,7 +178,7 @@ func (r *KafkaMdm) run() {
 				log.Warnf("KafkaMdm %q: seen %d times: %s", r.key, v, k)
 			}
 
-			r.numErrFlush.Inc(1)
+			routeErrCounter.WithLabelValues("kafka", "flush").Inc()
 			log.Warnf("KafkaMdm %q: failed to submit data: %s will try again in 100ms. (this attempt took %s)", r.key, err, diff)
 
 			time.Sleep(100 * time.Millisecond)
@@ -199,7 +193,7 @@ func (r *KafkaMdm) run() {
 				}
 				return
 			}
-			r.numBuffered.Dec(1)
+			routeBufferedMetricsGauge.WithLabelValues("all").Dec()
 			md, err := parseMetric(buf, r.schemas, r.orgId)
 			if err != nil {
 				log.Errorf("KafkaMdm %q: %s", r.key, err)
@@ -220,7 +214,7 @@ func (r *KafkaMdm) run() {
 
 func (r *KafkaMdm) Dispatch(buf []byte) {
 	log.Tracef("kafkaMdm %q: sending to dest %v: %s", r.key, r.brokers, buf)
-	r.dispatch(r.buf, buf, r.numBuffered, r.numDropBuffFull)
+	r.dispatch(r.buf, buf)
 }
 
 func (r *KafkaMdm) Flush() error {

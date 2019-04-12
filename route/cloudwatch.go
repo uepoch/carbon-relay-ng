@@ -32,20 +32,15 @@ type CloudWatch struct {
 	baseRoute
 	buf      chan []byte
 	blocking bool
-	dispatch func(chan []byte, []byte, metrics.Gauge, metrics.Counter)
+	dispatch func(chan []byte, []byte)
 
 	bufSize      int // amount of messages we can buffer up. each message is about 100B. so 1e7 is about 1GB.
 	flushMaxSize int
 	flushMaxWait time.Duration
 
-	numOut                metrics.Counter // metrics successfully written to CloudWatch
-	numCloudWatchMessages metrics.Counter // number of messages submitted to CloudWatch
-	numErrFlush           metrics.Counter
-	numDropBuffFull       metrics.Counter   // metric drops due to queue full
-	numParseError         metrics.Counter   // metrics that failed destination.ParseDataPoint()
+	numCloudWatchMessages metrics.Counter   // number of messages submitted to CloudWatch
 	durationTickFlush     metrics.Timer     // only updated after successful flush
 	tickFlushSize         metrics.Histogram // only updated after successful flush
-	numBuffered           metrics.Gauge
 	bufferSize            metrics.Gauge
 }
 
@@ -70,15 +65,10 @@ func NewCloudWatch(key, prefix, sub, regex, awsProfile, awsRegion, awsNamespace 
 		flushMaxSize:       flushMaxSize,
 		flushMaxWait:       time.Duration(flushMaxWait) * time.Millisecond,
 
-		numOut:                stats.Counter("dest=cloudwatch" + ".unit=Metric.direction=out"),
 		numCloudWatchMessages: stats.Counter("dest=cloudwatch" + "unit.Metric.what=CloudWatchMessagesPublished"),
-		numErrFlush:           stats.Counter("dest=cloudwatch" + ".unit=Err.type=flush"),
-		numParseError:         stats.Counter("dest=cloudwatch" + ".unit.Err.type=parse"),
 		durationTickFlush:     stats.Timer("dest=cloudwatch" + ".what=durationFlush.type=ticker"),
 		tickFlushSize:         stats.Histogram("dest=cloudwatch" + ".unit=B.what=FlushSize.type=ticker"),
-		numBuffered:           stats.Gauge("dest=cloudwatch" + ".unit=Metric.what=numBuffered"),
 		bufferSize:            stats.Gauge("dest=cloudwatch" + ".unit=Metric.what=bufferSize"),
-		numDropBuffFull:       stats.Counter("dest=cloudwatch" + ".unit=Metric.action=drop.reason=queue_full"),
 	}
 	r.bufferSize.Update(int64(bufSize))
 
@@ -136,7 +126,7 @@ func (r *CloudWatch) run() {
 				flush()
 				return
 			}
-			r.numBuffered.Dec(1)
+			routeBufferedMetricsGauge.WithLabelValues("all").Dec()
 
 			// Parse metric data
 			msg := strings.TrimSpace(string(buf))
@@ -193,13 +183,13 @@ func (r *CloudWatch) publish(metricData cloudwatch.PutMetricDataInput, cnt int) 
 	result, err := r.client.PutMetricData(&metricData)
 	if err != nil {
 		log.Errorf("RouteCloudWatch: failed sending metric data: %s", err)
-		r.numErrFlush.Inc(1)
+		routeErrCounter.WithLabelValues("cloudwatch", "flush").Inc()
 		return
 	}
 
 	dataLength := int64(len(metricData.MetricData))
 	dur := time.Since(start)
-	r.numOut.Inc(int64(cnt))
+	outSuccessCounter.WithLabelValues("cloudwatch").Add(float64(cnt))
 	r.numCloudWatchMessages.Inc(1)
 	r.durationTickFlush.Update(dur)
 	r.tickFlushSize.Update(dataLength)
@@ -211,7 +201,7 @@ func (r *CloudWatch) publish(metricData cloudwatch.PutMetricDataInput, cnt int) 
 
 // Dispatch is called to submit metrics. They will be in graphite 'plain' format no matter how they arrived.
 func (r *CloudWatch) Dispatch(buf []byte) {
-	r.dispatch(r.buf, buf, r.numBuffered, r.numDropBuffFull)
+	r.dispatch(r.buf, buf)
 }
 
 // Flush is not currently implemented

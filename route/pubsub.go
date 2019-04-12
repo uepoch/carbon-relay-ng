@@ -43,20 +43,16 @@ type PubSub struct {
 	psTopic  *pubsub.Topic
 	buf      chan []byte
 	blocking bool
-	dispatch func(chan []byte, []byte, metrics.Gauge, metrics.Counter)
+	dispatch func(chan []byte, []byte)
 
 	bufSize      int // amount of messages we can buffer up. each message is about 100B. so 1e7 is about 1GB.
 	flushMaxSize int
 	flushMaxWait time.Duration
 
-	numOut            metrics.Counter // metrics successfully written to google pubsub
-	numPubSubMessages metrics.Counter // number of pubsub.Messages submitted to google pubsub
-	numErrFlush       metrics.Counter
+	numPubSubMessages metrics.Counter   // number of pubsub.Messages submitted to google pubsub
 	numDropBuffFull   metrics.Counter   // metric drops due to queue full
-	numParseError     metrics.Counter   // metrics that failed destination.ParseDataPoint()
 	durationTickFlush metrics.Timer     // only updated after successful flush
 	tickFlushSize     metrics.Histogram // only updated after successful flush
-	numBuffered       metrics.Gauge
 	bufferSize        metrics.Gauge
 }
 
@@ -81,13 +77,9 @@ func NewPubSub(key, prefix, sub, regex, project, topic, format, codec string, bu
 		flushMaxSize: flushMaxSize,
 		flushMaxWait: time.Duration(flushMaxWait) * time.Millisecond,
 
-		numOut:            stats.Counter("dest=" + topic + ".unit=Metric.direction=out"),
 		numPubSubMessages: stats.Counter("dest=" + topic + "unit.Metric.what=pubsubMessagesPublished"),
-		numErrFlush:       stats.Counter("dest=" + topic + ".unit=Err.type=flush"),
-		numParseError:     stats.Counter("dest=" + topic + ".unit.Err.type=parse"),
 		durationTickFlush: stats.Timer("dest=" + topic + ".what=durationFlush.type=ticker"),
 		tickFlushSize:     stats.Histogram("dest=" + topic + ".unit=B.what=FlushSize.type=ticker"),
-		numBuffered:       stats.Gauge("dest=" + topic + ".unit=Metric.what=numBuffered"),
 		bufferSize:        stats.Gauge("dest=" + topic + ".unit=Metric.what=bufferSize"),
 		numDropBuffFull:   stats.Counter("dest=" + topic + ".unit=Metric.action=drop.reason=queue_full"),
 	}
@@ -141,7 +133,7 @@ func (r *PubSub) run() {
 				flush()
 				return
 			}
-			r.numBuffered.Dec(1)
+			routeBufferedMetricsGauge.WithLabelValues("all").Dec()
 
 			// flush first if this new buf is likely to breach our size limit (compression is not considered so it won't be exact)
 			if msgbuf.Len()+len(buf)+1 >= r.flushMaxSize {
@@ -156,7 +148,7 @@ func (r *PubSub) run() {
 			case "pickle":
 				dp, err := dest.ParseDataPoint(buf)
 				if err != nil {
-					r.numParseError.Inc(1)
+					routeErrCounter.WithLabelValues("pubsub", "parse").Inc()
 					continue
 				}
 				msgbuf.Write(dest.Pickle(dp))
@@ -214,7 +206,7 @@ func (r *PubSub) publish(buf *bytes.Buffer, cnt int) {
 	// compressed if r.codec == "none"
 	if err := compressWrite(&payload, buf.Bytes(), r.codec); err != nil {
 		log.Errorf("pubsub(%s) failed compressing message: %s", r.Key(), err)
-		r.numErrFlush.Inc(1)
+		routeErrCounter.WithLabelValues("pubsub", "flush").Inc()
 		return
 	}
 	attrs["codec"] = r.codec
@@ -226,10 +218,10 @@ func (r *PubSub) publish(buf *bytes.Buffer, cnt int) {
 	})
 	if id, err := res.Get(context.Background()); err != nil {
 		log.Errorf("pubsub(%s) publish failure: %s", r.Key(), err)
-		r.numErrFlush.Inc(1)
+		routeErrCounter.WithLabelValues("pubsub", "flush").Inc()
 	} else {
 		dur := time.Since(start)
-		r.numOut.Inc(int64(cnt))
+		outSuccessCounter.WithLabelValues("pubsub").Add(float64(cnt))
 		r.numPubSubMessages.Inc(1)
 		r.durationTickFlush.Update(dur)
 		r.tickFlushSize.Update(int64(payload.Len()))
@@ -241,7 +233,7 @@ func (r *PubSub) publish(buf *bytes.Buffer, cnt int) {
 
 // Dispatch is called to submit metrics. They will be in graphite 'plain' format no matter how they arrived.
 func (r *PubSub) Dispatch(buf []byte) {
-	r.dispatch(r.buf, buf, r.numBuffered, r.numDropBuffFull)
+	r.dispatch(r.buf, buf)
 }
 
 // Flush is not currently implemented

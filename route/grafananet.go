@@ -38,7 +38,7 @@ type GrafanaNet struct {
 	timeout      time.Duration
 	sslVerify    bool
 	blocking     bool
-	dispatch     func(chan []byte, []byte, metrics.Gauge, metrics.Counter)
+	dispatch     func(chan []byte, []byte)
 	concurrency  int
 	orgId        int
 	in           []chan []byte
@@ -46,14 +46,11 @@ type GrafanaNet struct {
 	wg           *sync.WaitGroup
 	client       *http.Client
 
-	numErrFlush       metrics.Counter
-	numOut            metrics.Counter   // metrics successfully written to our buffered conn (no flushing yet)
 	numDropBuffFull   metrics.Counter   // metric drops due to queue full
 	durationTickFlush metrics.Timer     // only updated after successful flush
 	durationManuFlush metrics.Timer     // only updated after successful flush. not implemented yet
 	tickFlushSize     metrics.Histogram // only updated after successful flush
 	manuFlushSize     metrics.Histogram // only updated after successful flush. not implemented yet
-	numBuffered       metrics.Gauge
 	bufferSize        metrics.Gauge
 }
 
@@ -90,13 +87,10 @@ func NewGrafanaNet(key, prefix, sub, regex, addr, apiKey, schemasFile string, sp
 		shutdown:     make(chan struct{}),
 		wg:           new(sync.WaitGroup),
 
-		numErrFlush:       stats.Counter("dest=" + cleanAddr + ".unit=Err.type=flush"),
-		numOut:            stats.Counter("dest=" + cleanAddr + ".unit=Metric.direction=out"),
 		durationTickFlush: stats.Timer("dest=" + cleanAddr + ".what=durationFlush.type=ticker"),
 		durationManuFlush: stats.Timer("dest=" + cleanAddr + ".what=durationFlush.type=manual"),
 		tickFlushSize:     stats.Histogram("dest=" + cleanAddr + ".unit=B.what=FlushSize.type=ticker"),
 		manuFlushSize:     stats.Histogram("dest=" + cleanAddr + ".unit=B.what=FlushSize.type=manual"),
-		numBuffered:       stats.Gauge("dest=" + cleanAddr + ".unit=Metric.what=numBuffered"),
 		bufferSize:        stats.Gauge("dest=" + cleanAddr + ".unit=Metric.what=bufferSize"),
 		numDropBuffFull:   stats.Counter("dest=" + cleanAddr + ".unit=Metric.action=drop.reason=queue_full"),
 	}
@@ -158,7 +152,7 @@ func (route *GrafanaNet) run(in chan []byte) {
 	for {
 		select {
 		case buf := <-in:
-			route.numBuffered.Dec(1)
+			routeBufferedMetricsGauge.WithLabelValues("grafananet").Dec()
 			md, err := parseMetric(buf, route.schemas, route.orgId)
 			if err != nil {
 				log.Errorf("RouteGrafanaNet: %s", err)
@@ -196,7 +190,7 @@ func (route *GrafanaNet) retryFlush(metrics []*schema.MetricData, buffer *bytes.
 	if err != nil {
 		panic(err)
 	}
-	route.numOut.Inc(int64(len(metrics)))
+	outSuccessCounter.WithLabelValues("grafananet").Add(float64(len(metrics)))
 
 	buffer.Reset()
 	snappyBody := snappy.NewWriter(buffer)
@@ -221,7 +215,7 @@ func (route *GrafanaNet) retryFlush(metrics []*schema.MetricData, buffer *bytes.
 		if err == nil {
 			break
 		}
-		route.numErrFlush.Inc(1)
+		routeErrCounter.WithLabelValues("grafananet", "flush").Inc()
 		b := boff.Duration()
 		log.Warnf("GrafanaNet failed to submit data: %s - will try again in %s (this attempt took %s)", err.Error(), b, dur)
 		time.Sleep(b)
@@ -268,7 +262,7 @@ func (route *GrafanaNet) Dispatch(buf []byte) {
 	hasher := fnv.New32a()
 	hasher.Write(key)
 	shard := int(hasher.Sum32() % uint32(route.concurrency))
-	route.dispatch(route.in[shard], buf, route.numBuffered, route.numDropBuffFull)
+	route.dispatch(route.in[shard], buf)
 }
 
 func (route *GrafanaNet) Flush() error {
