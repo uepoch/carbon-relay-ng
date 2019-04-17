@@ -9,7 +9,6 @@ import (
 	"net"
 	"net/http"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/Dieterbe/go-metrics"
@@ -17,7 +16,6 @@ import (
 	dest "github.com/graphite-ng/carbon-relay-ng/destination"
 	"github.com/graphite-ng/carbon-relay-ng/matcher"
 	"github.com/graphite-ng/carbon-relay-ng/persister"
-	"github.com/graphite-ng/carbon-relay-ng/util"
 	"github.com/jpillora/backoff"
 	log "github.com/sirupsen/logrus"
 
@@ -66,10 +64,8 @@ func NewGrafanaNet(key, prefix, sub, regex, addr, apiKey, schemasFile string, sp
 		return nil, err
 	}
 
-	cleanAddr := util.AddrToPath(addr)
-
 	r := &GrafanaNet{
-		baseRoute: baseRoute{sync.Mutex{}, atomic.Value{}, key},
+		baseRoute: *newBaseRoute(key, "grafananet"),
 		addr:      addr,
 		apiKey:    apiKey,
 		schemas:   schemas,
@@ -85,21 +81,14 @@ func NewGrafanaNet(key, prefix, sub, regex, addr, apiKey, schemasFile string, sp
 		in:           make([]chan []byte, concurrency),
 		shutdown:     make(chan struct{}),
 		wg:           new(sync.WaitGroup),
-
-		// durationTickFlush: stats.Timer("dest=" + cleanAddr + ".what=durationFlush.type=ticker"),
-		// durationManuFlush: stats.Timer("dest=" + cleanAddr + ".what=durationFlush.type=manual"),
-		// tickFlushSize:     stats.Histogram("dest=" + cleanAddr + ".unit=B.what=FlushSize.type=ticker"),
-		// manuFlushSize:     stats.Histogram("dest=" + cleanAddr + ".unit=B.what=FlushSize.type=manual"),
-		// bufferSize:        stats.Gauge("dest=" + cleanAddr + ".unit=Metric.what=bufferSize"),
-		// numDropBuffFull:   stats.Counter("dest=" + cleanAddr + ".unit=Metric.action=drop.reason=queue_full"),
 	}
 
 	r.bufferSize.Update(int64(bufSize))
 
 	if blocking {
-		r.dispatch = dispatchBlocking
+		r.dispatch = r.dispatchBlocking
 	} else {
-		r.dispatch = dispatchNonBlocking
+		r.dispatch = r.dispatchNonBlocking
 	}
 
 	r.wg.Add(r.concurrency)
@@ -151,7 +140,7 @@ func (route *GrafanaNet) run(in chan []byte) {
 	for {
 		select {
 		case buf := <-in:
-			routeBufferedMetricsGauge.WithLabelValues("grafananet").Dec()
+			route.rm.Buffer.BufferedMetrics.Dec()
 			md, err := parseMetric(buf, route.schemas, route.orgId)
 			if err != nil {
 				log.Errorf("RouteGrafanaNet: %s", err)
@@ -189,7 +178,7 @@ func (route *GrafanaNet) retryFlush(metrics []*schema.MetricData, buffer *bytes.
 	if err != nil {
 		panic(err)
 	}
-	outSuccessCounter.WithLabelValues("grafananet").Add(float64(len(metrics)))
+	route.rm.OutMetrics.Add(float64(len(metrics)))
 
 	buffer.Reset()
 	snappyBody := snappy.NewWriter(buffer)
@@ -214,7 +203,7 @@ func (route *GrafanaNet) retryFlush(metrics []*schema.MetricData, buffer *bytes.
 		if err == nil {
 			break
 		}
-		routeErrCounter.WithLabelValues("grafananet", "flush").Inc()
+		route.rm.Errors.WithLabelValues("flush").Inc()
 		b := boff.Duration()
 		log.Warnf("GrafanaNet failed to submit data: %s - will try again in %s (this attempt took %s)", err.Error(), b, dur)
 		time.Sleep(b)
@@ -282,7 +271,7 @@ func (route *GrafanaNet) Shutdown() error {
 }
 
 func (route *GrafanaNet) Snapshot() Snapshot {
-	snapshot := makeSnapshot(&route.baseRoute, "GrafanaNet")
+	snapshot := makeSnapshot(&route.baseRoute)
 	snapshot.Addr = route.addr
 	return snapshot
 }

@@ -7,14 +7,13 @@ import (
 	"io"
 	"io/ioutil"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"cloud.google.com/go/pubsub"
-	"github.com/Dieterbe/go-metrics"
 	dest "github.com/graphite-ng/carbon-relay-ng/destination"
+
 	"github.com/graphite-ng/carbon-relay-ng/matcher"
-	newmetrics "github.com/graphite-ng/carbon-relay-ng/metrics"
+	"github.com/graphite-ng/carbon-relay-ng/metrics"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -48,14 +47,6 @@ type PubSub struct {
 	bufSize      int // amount of messages we can buffer up. each message is about 100B. so 1e7 is about 1GB.
 	flushMaxSize int
 	flushMaxWait time.Duration
-
-	bm *newmetrics.BufferMetrics
-
-	numPubSubMessages metrics.Counter   // number of pubsub.Messages submitted to google pubsub
-	numDropBuffFull   metrics.Counter   // metric drops due to queue full
-	durationTickFlush metrics.Timer     // only updated after successful flush
-	tickFlushSize     metrics.Histogram // only updated after successful flush
-	bufferSize        metrics.Gauge
 }
 
 // NewPubSub creates a route that writes metrics to a Google PubSub topic
@@ -67,7 +58,7 @@ func NewPubSub(key, prefix, sub, regex, project, topic, format, codec string, bu
 	}
 
 	r := &PubSub{
-		baseRoute: baseRoute{sync.Mutex{}, atomic.Value{}, key},
+		baseRoute: *newBaseRoute(key, "pubsub"),
 		project:   project,
 		topic:     topic,
 		format:    format,
@@ -78,19 +69,13 @@ func NewPubSub(key, prefix, sub, regex, project, topic, format, codec string, bu
 		bufSize:      bufSize,
 		flushMaxSize: flushMaxSize,
 		flushMaxWait: time.Duration(flushMaxWait) * time.Millisecond,
-
-		// numPubSubMessages: stats.Counter("dest=" + topic + "unit.Metric.what=pubsubMessagesPublished"),
-		// durationTickFlush: stats.Timer("dest=" + topic + ".what=durationFlush.type=ticker"),
-		// tickFlushSize:     stats.Histogram("dest=" + topic + ".unit=B.what=FlushSize.type=ticker"),
-		// bufferSize:        stats.Gauge("dest=" + topic + ".unit=Metric.what=bufferSize"),
-		// numDropBuffFull:   stats.Counter("dest=" + topic + ".unit=Metric.action=drop.reason=queue_full"),
 	}
-	r.bufferSize.Update(int64(bufSize))
+	r.rm.Buffer.Size.Set(float64(bufSize))
 
 	if blocking {
-		r.dispatch = dispatchBlocking
+		r.dispatch = r.dispatchBlocking
 	} else {
-		r.dispatch = dispatchNonBlocking
+		r.dispatch = r.dispatchNonBlocking
 	}
 
 	// create pubsub client
@@ -135,7 +120,7 @@ func (r *PubSub) run() {
 				flush()
 				return
 			}
-			routeBufferedMetricsGauge.WithLabelValues("all").Dec()
+			r.rm.Buffer.BufferedMetrics.Dec()
 
 			// flush first if this new buf is likely to breach our size limit (compression is not considered so it won't be exact)
 			if msgbuf.Len()+len(buf)+1 >= r.flushMaxSize {
@@ -150,7 +135,7 @@ func (r *PubSub) run() {
 			case "pickle":
 				dp, err := dest.ParseDataPoint(buf)
 				if err != nil {
-					routeErrCounter.WithLabelValues("pubsub", "parse").Inc()
+					r.rm.Errors.WithLabelValues("parse").Inc()
 					continue
 				}
 				msgbuf.Write(dest.Pickle(dp))
@@ -208,7 +193,7 @@ func (r *PubSub) publish(buf *bytes.Buffer, cnt int) {
 	// compressed if r.codec == "none"
 	if err := compressWrite(&payload, buf.Bytes(), r.codec); err != nil {
 		log.Errorf("pubsub(%s) failed compressing message: %s", r.Key(), err)
-		routeErrCounter.WithLabelValues("pubsub", "flush").Inc()
+		r.rm.Errors.WithLabelValues("flush_compress").Inc()
 		return
 	}
 	attrs["codec"] = r.codec
@@ -220,13 +205,12 @@ func (r *PubSub) publish(buf *bytes.Buffer, cnt int) {
 	})
 	if id, err := res.Get(context.Background()); err != nil {
 		log.Errorf("pubsub(%s) publish failure: %s", r.Key(), err)
-		routeErrCounter.WithLabelValues("pubsub", "flush").Inc()
+		r.rm.Errors.WithLabelValues("flush").Inc()
 	} else {
+		r.rm.OutMetrics.Add(float64(cnt))
+		r.rm.OutBatches.Inc()
 		dur := time.Since(start)
-		outSuccessCounter.WithLabelValues("pubsub").Add(float64(cnt))
-		r.numPubSubMessages.Inc(1)
-		r.durationTickFlush.Update(dur)
-		r.tickFlushSize.Update(int64(payload.Len()))
+		r.rm.Buffer.ObserveFlush(dur, int64(payload.Len()), metrics.FlushTypeTicker)
 		// ex: "pubsub(pubsub) publish success, msgID: 27624288224257, count: 50000, size: 2139099, time: 1.288598 seconds"
 		log.Debugf("pubsub(%s) publish success, msgID: %s, count: %d, size: %d, time: %f ms",
 			r.Key(), id, cnt, payload.Len(), float64(dur)/float64(time.Millisecond))
@@ -253,5 +237,5 @@ func (r *PubSub) Shutdown() error {
 
 // Snapshot clones the current config for update operations
 func (r *PubSub) Snapshot() Snapshot {
-	return makeSnapshot(&r.baseRoute, "pubsub")
+	return makeSnapshot(&r.baseRoute)
 }

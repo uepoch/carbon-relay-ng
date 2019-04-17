@@ -2,14 +2,11 @@ package route
 
 import (
 	"fmt"
-	"sync"
-	"sync/atomic"
 	"time"
 
-	"github.com/Dieterbe/go-metrics"
 	dest "github.com/graphite-ng/carbon-relay-ng/destination"
 	"github.com/graphite-ng/carbon-relay-ng/matcher"
-	"github.com/graphite-ng/carbon-relay-ng/util"
+	instMetrics "github.com/graphite-ng/carbon-relay-ng/metrics"
 	log "github.com/sirupsen/logrus"
 
 	"github.com/Shopify/sarama"
@@ -35,13 +32,6 @@ type KafkaMdm struct {
 	bufSize      int // amount of messages we can buffer up. each message is about 100B. so 1e7 is about 1GB.
 	flushMaxNum  int
 	flushMaxWait time.Duration
-
-	numDropBuffFull   metrics.Counter   // metric drops due to queue full
-	durationTickFlush metrics.Timer     // only updated after successful flush
-	durationManuFlush metrics.Timer     // only updated after successful flush. not implemented yet
-	tickFlushSize     metrics.Histogram // only updated after successful flush
-	manuFlushSize     metrics.Histogram // only updated after successful flush. not implemented yet
-	bufferSize        metrics.Gauge
 }
 
 // NewKafkaMdm creates a special route that writes to a grafana.net datastore
@@ -56,10 +46,8 @@ func NewKafkaMdm(key, prefix, sub, regex, topic, codec, schemasFile, partitionBy
 		return nil, err
 	}
 
-	cleanAddr := util.AddrToPath(brokers[0])
-
 	r := &KafkaMdm{
-		baseRoute: baseRoute{sync.Mutex{}, atomic.Value{}, key},
+		baseRoute: *newBaseRoute(key, "kafkaMdm"),
 		topic:     topic,
 		brokers:   brokers,
 		buf:       make(chan []byte, bufSize),
@@ -70,20 +58,13 @@ func NewKafkaMdm(key, prefix, sub, regex, topic, codec, schemasFile, partitionBy
 		bufSize:      bufSize,
 		flushMaxNum:  flushMaxNum,
 		flushMaxWait: time.Duration(flushMaxWait) * time.Millisecond,
-
-		// durationTickFlush: stats.Timer("dest=" + cleanAddr + ".what=durationFlush.type=ticker"),
-		// durationManuFlush: stats.Timer("dest=" + cleanAddr + ".what=durationFlush.type=manual"),
-		// tickFlushSize:     stats.Histogram("dest=" + cleanAddr + ".unit=B.what=FlushSize.type=ticker"),
-		// manuFlushSize:     stats.Histogram("dest=" + cleanAddr + ".unit=B.what=FlushSize.type=manual"),
-		// bufferSize:        stats.Gauge("dest=" + cleanAddr + ".unit=Metric.what=bufferSize"),
-		// numDropBuffFull:   stats.Counter("dest=" + cleanAddr + ".unit=Metric.action=drop.reason=queue_full"),
 	}
-	r.bufferSize.Update(int64(bufSize))
+	r.rm.Buffer.Size.Set(float64(bufSize))
 
 	if blocking {
-		r.dispatch = dispatchBlocking
+		r.dispatch = r.dispatchBlocking
 	} else {
-		r.dispatch = dispatchNonBlocking
+		r.dispatch = r.dispatchNonBlocking
 	}
 
 	r.partitioner, err = partitioner.NewKafka(partitionBy)
@@ -162,22 +143,22 @@ func (r *KafkaMdm) run() {
 			diff := time.Since(pre)
 			if err == nil {
 				log.Debugf("KafkaMdm %q: sent %d metrics in %s - msg size %d", r.key, len(metrics), diff, size)
-				outSuccessCounter.WithLabelValues("kafkamdm").Add(float64((len(metrics))))
-				r.tickFlushSize.Update(int64(size))
-				r.durationTickFlush.Update(diff)
+				r.rm.OutMetrics.Add(float64(len(metrics)))
+				r.rm.OutBatches.Inc()
+				r.rm.Buffer.ObserveFlush(diff, int64(size), instMetrics.FlushTypeTicker)
 				metrics = metrics[:0]
 				break
 			}
 
 			errors := make(map[error]int)
 			for _, e := range err.(sarama.ProducerErrors) {
+				r.rm.Errors.WithLabelValues("flush").Inc()
 				errors[e.Err] += 1
 			}
 			for k, v := range errors {
 				log.Warnf("KafkaMdm %q: seen %d times: %s", r.key, v, k)
 			}
 
-			routeErrCounter.WithLabelValues("kafka", "flush").Inc()
 			log.Warnf("KafkaMdm %q: failed to submit data: %s will try again in 100ms. (this attempt took %s)", r.key, err, diff)
 
 			time.Sleep(100 * time.Millisecond)
@@ -192,7 +173,7 @@ func (r *KafkaMdm) run() {
 				}
 				return
 			}
-			routeBufferedMetricsGauge.WithLabelValues("all").Dec()
+			r.rm.Buffer.BufferedMetrics.Dec()
 			md, err := parseMetric(buf, r.schemas, r.orgId)
 			if err != nil {
 				log.Errorf("KafkaMdm %q: %s", r.key, err)
@@ -229,7 +210,7 @@ func (r *KafkaMdm) Shutdown() error {
 }
 
 func (r *KafkaMdm) Snapshot() Snapshot {
-	return makeSnapshot(&r.baseRoute, "KafkaMdm")
+	return makeSnapshot(&r.baseRoute)
 }
 
 func getCompression(codec string) (sarama.CompressionCodec, error) {

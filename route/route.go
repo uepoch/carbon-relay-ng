@@ -8,26 +8,9 @@ import (
 
 	dest "github.com/graphite-ng/carbon-relay-ng/destination"
 	"github.com/graphite-ng/carbon-relay-ng/matcher"
-	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/promauto"
+	"github.com/graphite-ng/carbon-relay-ng/metrics"
 	log "github.com/sirupsen/logrus"
 )
-
-// Metrics
-var outSuccessCounter = promauto.NewCounterVec(prometheus.CounterOpts{
-	Name: "route_metrics_out_total",
-	Help: "The total number of metrics ",
-}, []string{"route"})
-
-var routeErrCounter = promauto.NewCounterVec(prometheus.CounterOpts{
-	Name: "route_error_total",
-	Help: "The total number of errors",
-}, []string{"route", "type"})
-
-var routeBufferedMetricsGauge = promauto.NewGaugeVec(prometheus.GaugeOpts{
-	Name: "route_buffered_metrics",
-	Help: "The current number of buffered metrics",
-}, []string{"route"})
 
 // numDropBuffFull       metrics.Counter   // metric drops due to queue full
 // durationTickFlush     metrics.Timer     // only updated after successful flush
@@ -63,6 +46,7 @@ type Route interface {
 	Match(s []byte) bool
 	Snapshot() Snapshot
 	Key() string
+	Type() string
 	Flush() error
 	Shutdown() error
 	GetDestination(index int) (*dest.Destination, error)
@@ -83,7 +67,19 @@ type baseRoute struct {
 	sync.Mutex              // only needed for the multiple writers
 	config     atomic.Value // for reading and writing
 
-	key string
+	key       string
+	routeType string
+	rm        *metrics.RouteMetrics
+}
+
+func newBaseRoute(key, routeType string) *baseRoute {
+	return &baseRoute{
+		sync.Mutex{},
+		atomic.Value{},
+		key,
+		routeType,
+		metrics.NewRouteMetrics(key, routeType, nil),
+	}
 }
 
 type SendAllMatch struct {
@@ -105,7 +101,7 @@ func NewSendAllMatch(key, prefix, sub, regex string, destinations []*dest.Destin
 	if err != nil {
 		return nil, err
 	}
-	r := &SendAllMatch{baseRoute{sync.Mutex{}, atomic.Value{}, key}}
+	r := &SendAllMatch{*newBaseRoute(key, "SendAllMatch")}
 	r.config.Store(baseConfig{*m, destinations})
 	r.run()
 	return r, nil
@@ -118,7 +114,7 @@ func NewSendFirstMatch(key, prefix, sub, regex string, destinations []*dest.Dest
 	if err != nil {
 		return nil, err
 	}
-	r := &SendFirstMatch{baseRoute{sync.Mutex{}, atomic.Value{}, key}}
+	r := &SendFirstMatch{*newBaseRoute(key, "SendFirstMatch")}
 	r.config.Store(baseConfig{*m, destinations})
 	r.run()
 	return r, nil
@@ -129,7 +125,7 @@ func NewConsistentHashing(key, prefix, sub, regex string, destinations []*dest.D
 	if err != nil {
 		return nil, err
 	}
-	r := &ConsistentHashing{baseRoute{sync.Mutex{}, atomic.Value{}, key}}
+	r := &ConsistentHashing{*newBaseRoute(key, "ConsistentHashing")}
 	hasher := NewConsistentHasher(destinations)
 	r.config.Store(consistentHashingConfig{baseConfig{*m, destinations},
 		&hasher})
@@ -186,6 +182,10 @@ func (route *baseRoute) Key() string {
 	return route.key
 }
 
+func (route *baseRoute) Type() string {
+	return route.routeType
+}
+
 func (route *baseRoute) Match(s []byte) bool {
 	conf := route.config.Load().(Config)
 	return conf.Matcher().Match(s)
@@ -226,25 +226,25 @@ func (route *baseRoute) Shutdown() error {
 }
 
 // to view the state of the table/route at any point in time
-func makeSnapshot(route *baseRoute, routeType string) Snapshot {
+func makeSnapshot(route *baseRoute) Snapshot {
 	conf := route.config.Load().(Config)
 	dests := make([]*dest.Destination, len(conf.Dests()))
 	for i, d := range conf.Dests() {
 		dests[i] = d.Snapshot()
 	}
-	return Snapshot{Matcher: *conf.Matcher(), Dests: dests, Type: routeType, Key: route.key}
+	return Snapshot{Matcher: *conf.Matcher(), Dests: dests, Type: route.routeType, Key: route.key}
 }
 
 func (route *SendAllMatch) Snapshot() Snapshot {
-	return makeSnapshot(&route.baseRoute, "sendAllMatch")
+	return makeSnapshot(&route.baseRoute)
 }
 
 func (route *SendFirstMatch) Snapshot() Snapshot {
-	return makeSnapshot(&route.baseRoute, "sendFirstMatch")
+	return makeSnapshot(&route.baseRoute)
 }
 
 func (route *ConsistentHashing) Snapshot() Snapshot {
-	return makeSnapshot(&route.baseRoute, "consistentHashing")
+	return makeSnapshot(&route.baseRoute)
 }
 
 // baseCfgExtender is a function that takes a baseConfig and returns

@@ -1,39 +1,49 @@
 package metrics
 
 import (
-	"fmt"
-
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 )
 
+const routeNamespace = "route"
+
 type RouteMetrics struct {
-	Buffer        *BufferMetrics
-	InMetrics     prometheus.Counter
-	OutMetrics    prometheus.Counter
-	Errors        *prometheus.CounterVec
-	WriteDuration *prometheus.HistogramVec
+	Buffer     *BufferMetrics
+	InMetrics  prometheus.Counter
+	OutMetrics prometheus.Counter
+	OutBatches prometheus.Counter
+	Errors     *prometheus.CounterVec
 }
 
-func NewRouteMetrics(namespace, id, routeType string, additionnalLabels prometheus.Labels) *RouteMetrics {
+func NewRouteMetrics(id, routeType string, additionnalLabels prometheus.Labels) *RouteMetrics {
+	namespace := routeNamespace
 	if additionnalLabels == nil {
 		additionnalLabels = prometheus.Labels{}
 	}
 	additionnalLabels["id"] = id
-	sm := RouteMetrics{}
-	sm.Buffer = NewBufferMetrics(fmt.Sprintf("%s_%s", namespace, SpoolSystem), id, additionnalLabels)
-	sm.InMetrics = promauto.NewCounter(prometheus.CounterOpts{
+	rm := RouteMetrics{}
+
+	additionnalLabels["type"] = routeType
+
+	rm.Buffer = NewBufferMetrics(namespace, id, additionnalLabels)
+	// TODO: Add again once package route is refactored
+	// rm.InMetrics = promauto.NewCounter(prometheus.CounterOpts{
+	// 	Namespace:   namespace,
+	// 	Name:        "incoming_metrics_total",
+	// 	Help:        "total number of incoming metrics in a route",
+	// 	ConstLabels: additionnalLabels,
+	// })
+	rm.OutMetrics = promauto.NewCounter(prometheus.CounterOpts{
 		Namespace:   namespace,
-		Subsystem:   SpoolSystem,
-		Name:        "incoming_metrics_total",
-		Help:        "total number of incoming metrics in the route",
+		Name:        "outgoing_metrics_total",
+		Help:        "total number of outgoing metrics in a route",
 		ConstLabels: additionnalLabels,
 	})
-	sm.WriteDuration = promauto.NewHistogramVec(prometheus.HistogramOpts{
+	rm.OutBatches = promauto.NewCounter(prometheus.CounterOpts{
 		Namespace:   namespace,
-		Subsystem:   SpoolSystem,
-		Name:        "write_duration_seconds",
+		Name:        "outgoing_batches_total",
+		Help:        "total number of outgoing batches to remote service in a route",
 		ConstLabels: additionnalLabels,
-	}, []string{"destination"})
-	return &sm
+	})
+	return &rm
 }
