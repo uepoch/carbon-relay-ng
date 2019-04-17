@@ -10,15 +10,8 @@ import (
 	"io"
 	"time"
 
-	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/promauto"
 	log "github.com/sirupsen/logrus"
 )
-
-var durationOverflowFlush = promauto.NewCounterVec(prometheus.CounterOpts{
-	Name: "destination_overflow_flush_duration_sum",
-	Help: "The total duration to perform flush",
-}, []string{"destination"})
 
 // Writer implements buffering for an io.Writer object.
 // If an error occurs writing to a Writer, no more data will be
@@ -103,13 +96,13 @@ func (b *Writer) Write(p []byte) (nn int, err error) {
 			start := time.Now()
 			log.Tracef("bufWriter %s writing to tcp %s", b.key, p)
 			n, b.err = b.wr.Write(p)
-			durationOverflowFlush.WithLabelValues(b.key).Add(time.Since(start).Seconds())
+			log.Tracef("bufWriter %s took %#v to write to %s", b.key, time.Since(start), p)
 		} else {
 			n = copy(b.buf[b.n:], p)
 			b.n += n
 			start := time.Now()
 			b.flush()
-			durationOverflowFlush.WithLabelValues(b.key).Add(time.Since(start).Seconds())
+			log.Tracef("bufWriter %s took %#v to flush to %s", b.key, time.Since(start), p)
 		}
 		nn += n
 		p = p[n:]

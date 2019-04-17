@@ -9,10 +9,14 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promauto"
 )
 
-var counterTooOldMetrics = promauto.NewCounter(prometheus.CounterOpts{
-	Name: "aggregator_metrics_too_old_total",
-	Help: "The total number of metrics that couldn't be aggregated because of their age",
-})
+const prometheusNamespace = "aggregator"
+
+var counterTooOldMetrics = promauto.NewCounterVec(prometheus.CounterOpts{
+	Namespace: prometheusNamespace,
+	Name:      "metrics_too_old_total",
+	Help:      "The total number of metrics that couldn't be aggregated because of their age",
+}, []string{"prefix"})
+
 var rangeTracker *RangeTracker
 
 func InitMetrics() {
@@ -31,12 +35,14 @@ func NewRangeTracker() *RangeTracker {
 	m := &RangeTracker{
 		min: math.MaxUint32,
 		minG: promauto.NewGauge(prometheus.GaugeOpts{
-			Name: "aggregator_timestamp_received_min",
-			Help: "The oldest timestamp that was received by the aggregator",
+			Namespace: prometheusNamespace,
+			Name:      "timestamp_received_min",
+			Help:      "The oldest timestamp that was received by the aggregator",
 		}),
 		maxG: promauto.NewGauge(prometheus.GaugeOpts{
-			Name: "aggregator_timestamp_received_max",
-			Help: "The newest timestamp that was received by the aggregator",
+			Namespace: prometheusNamespace,
+			Name:      "timestamp_received_max",
+			Help:      "The newest timestamp that was received by the aggregator",
 		}),
 	}
 	go m.Run()

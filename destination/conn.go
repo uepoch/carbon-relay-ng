@@ -8,8 +8,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/graphite-ng/carbon-relay-ng/metrics"
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/promauto"
+
 	log "github.com/sirupsen/logrus"
 )
 
@@ -20,52 +21,6 @@ var keepsafe_initial_cap = 100000 // not very important
 var keepsafe_keep_duration = time.Duration(10 * time.Second)
 
 var newLine = []byte{'\n'}
-
-// Metrics
-var errCounter = promauto.NewCounterVec(prometheus.CounterOpts{
-	Name: "destination_conn_error_total",
-	Help: "The total number of error received",
-}, []string{"destination", "error"})
-
-var connOutCounter = promauto.NewCounterVec(prometheus.CounterOpts{
-	Name: "destination_metrics_written_to_buffer_total",
-	Help: "The total number of metrics written to conn buffer",
-}, []string{"destination"})
-
-var writeDurationTimer = promauto.NewCounterVec(prometheus.CounterOpts{
-	Name: "destination_metrics_written_to_buffer_duration_total",
-	Help: "The total duration to write to conn buffer",
-}, []string{"destination"})
-
-var flushDurationTimer = promauto.NewCounterVec(prometheus.CounterOpts{
-	Name: "destination_metrics_flush_duration_total",
-	Help: "The total duration to flush to the writter",
-}, []string{"destination", "type"})
-
-var flushSizeTotal = promauto.NewCounterVec(prometheus.CounterOpts{
-	Name: "destination_metrics_flush_size_total",
-	Help: "The sum of bytes flushed",
-}, []string{"destination", "type"})
-
-var flushSizeCount = promauto.NewCounterVec(prometheus.CounterOpts{
-	Name: "destination_metrics_flush_size_count",
-	Help: "The count of metrics flush",
-}, []string{"destination", "type"})
-
-var bufferedMetricsGauge = promauto.NewGaugeVec(prometheus.GaugeOpts{
-	Name: "destination_buffered_metrics",
-	Help: "The current number of buffered metrics",
-}, []string{"destination"})
-
-var bufferSizeGauge = promauto.NewGaugeVec(prometheus.GaugeOpts{
-	Name: "destination_buffer_size",
-	Help: "The size of the buffer",
-}, []string{"destination"})
-
-var dropedMetrics = promauto.NewCounterVec(prometheus.CounterOpts{
-	Name: "destination_metrics_dropped",
-	Help: "The count of metrics dropped",
-}, []string{"destination", "reason"})
 
 // Conn represents a connection to a tcp endpoint.
 // As long as conn.isAlive(), caller may write data to conn.In
@@ -78,6 +33,7 @@ var dropedMetrics = promauto.NewCounterVec(prometheus.CounterOpts{
 // keepSafe doesn't need a separate structure, we could just have an in-line buffer in between the dest and the conn
 // since we write buffered chunks in the bufWriter, may as well "keep those safe". e.g. buffered writing and keepSafe
 // can be the same buffer. but this requires significant refactoring.
+
 type Conn struct {
 	conn        *net.TCPConn
 	buffered    *Writer
@@ -89,11 +45,13 @@ type Conn struct {
 	flushErr    chan error
 	periodFlush time.Duration
 	keepSafe    *keepSafe
-
-	upMutex sync.RWMutex
-	up      bool // true until the conn goes down
+	upMutex     sync.RWMutex
+	up          bool // true until the conn goes down
 
 	wg sync.WaitGroup
+
+	droppedMetricsCounter *prometheus.CounterVec
+	bm                    *metrics.BufferMetrics
 }
 
 func NewConn(key, addr string, periodFlush time.Duration, pickle bool, connBufSize, ioBufSize int) (*Conn, error) {
@@ -121,8 +79,10 @@ func NewConn(key, addr string, periodFlush time.Duration, pickle bool, connBufSi
 		flushErr:    make(chan error),
 		periodFlush: periodFlush,
 		keepSafe:    NewKeepSafe(keepsafe_initial_cap, keepsafe_keep_duration),
+		bm:          metrics.NewBufferMetrics("duration_conn", key, nil),
 	}
-	bufferSizeGauge.WithLabelValues(key).Set(float64(connBufSize))
+
+	connObj.bm.Size.Set(float64(connBufSize))
 
 	connObj.wg.Add(2)
 	go connObj.checkEOF()
@@ -177,7 +137,7 @@ func (c *Conn) getRedo() [][]byte {
 	for {
 		select {
 		case buf := <-c.In:
-			bufferedMetricsGauge.WithLabelValues(c.key).Dec()
+			c.bm.BufferedMetrics.Dec()
 			c.keepSafe.Add(buf)
 		default:
 			return c.keepSafe.GetAll()
@@ -196,12 +156,11 @@ func (c *Conn) HandleData() {
 	defer c.wg.Done()
 	periodFlush := c.periodFlush
 	tickerFlush := time.NewTicker(periodFlush)
-	var now time.Time
-	var durationActive time.Duration
 	flushSize := int64(0)
+	start := time.Now()
 
 	for {
-		start := time.Now()
+		iterStart := time.Now()
 		var active time.Time
 		var action string
 		select { // handle incoming data or flush/shutdown commands
@@ -210,7 +169,7 @@ func (c *Conn) HandleData() {
 		case buf := <-c.In:
 			// seems to take about 30 micros when writing log to disk, 10 micros otherwise (100k messages/second)
 			active = time.Now()
-			bufferedMetricsGauge.WithLabelValues(c.key).Dec()
+			c.bm.BufferedMetrics.Dec()
 			action = "write"
 			log.Tracef("conn %s HandleData: writing %s", c.key, buf)
 			c.keepSafe.Add(buf)
@@ -220,10 +179,8 @@ func (c *Conn) HandleData() {
 				c.close() // this can take a while but that's ok. this conn won't be used anymore
 				return
 			}
-			connOutCounter.WithLabelValues(c.key).Inc()
+			c.bm.WriteDuration.Observe(time.Since(active).Seconds())
 			flushSize += int64(n)
-			now = time.Now()
-			writeDurationTimer.WithLabelValues(c.key).Add(time.Since(active).Seconds())
 		case <-tickerFlush.C:
 			active = time.Now()
 			action = "auto-flush"
@@ -236,11 +193,7 @@ func (c *Conn) HandleData() {
 				return
 			}
 			log.Debugf("conn %s HandleData c.buffered auto-flush done without error", c.key)
-			now = time.Now()
-			durationActive = now.Sub(active)
-			flushDurationTimer.WithLabelValues(c.key, "tick").Add(time.Since(active).Seconds())
-			flushSizeTotal.WithLabelValues(c.key, "tick").Add(float64(flushSize))
-			flushSizeCount.WithLabelValues(c.key, "tick").Inc()
+			c.bm.ObserveFlush(time.Since(active), flushSize, action)
 			flushSize = 0
 		case <-c.flush:
 			active = time.Now()
@@ -250,22 +203,18 @@ func (c *Conn) HandleData() {
 			c.flushErr <- err
 			if err != nil {
 				log.Warnf("conn %s HandleData c.buffered manual flush done but witth error: %s, closing", c.key, err)
-				// TODO instrument
+				errCounter.WithLabelValues(c.key, "flush").Inc()
 				c.close()
 				return
 			}
 			log.Infof("conn %s HandleData c.buffered manual flush done without error", c.key)
-			now = time.Now()
-			durationActive = now.Sub(active)
-			flushDurationTimer.WithLabelValues(c.key, "manual").Add(time.Since(active).Seconds())
-			flushSizeTotal.WithLabelValues(c.key, "manual").Add(float64(flushSize))
-			flushSizeCount.WithLabelValues(c.key, "manual").Inc()
+			c.bm.ObserveFlush(time.Since(active), flushSize, action)
 			flushSize = 0
 		case <-c.shutdown:
 			log.Debugf("conn %s HandleData: shutdown received. returning.", c.key)
 			return
 		}
-		log.Debugf("conn %s HandleData %s %s (total iter %s) (use this to tune your In buffering)", c.key, action, durationActive, now.Sub(start))
+		log.Debugf("conn %s HandleData %s %s (total iter %v) (use this to tune your In buffering)", c.key, action, time.Since(iterStart), time.Since(start))
 	}
 }
 
@@ -276,7 +225,7 @@ func (c *Conn) Write(buf []byte) (int, error) {
 		dp, err := ParseDataPoint(buf)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, err)
-			dropedMetrics.WithLabelValues(c.key, "bad_pickle").Inc()
+			droppedMetricsCounter.WithLabelValues(c.key, "bad_pickle").Inc()
 			return 0, nil
 		}
 		buf = Pickle(dp)

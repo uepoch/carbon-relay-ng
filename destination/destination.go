@@ -251,13 +251,13 @@ func (dest *Destination) relay() {
 		select {
 		// this op won't succeed as long as the conn is busy processing/flushing
 		case conn.In <- buf:
-			bufferedMetricsGauge.WithLabelValues(conn.key).Inc()
+			conn.bm.BufferedMetrics.Inc()
 		default:
 			log.Tracef("dest %s %s nonBlockingSend -> dropping due to slow conn", dest.Key, buf)
 			// TODO check if it was because conn closed
 			// we don't want to just buffer everything in memory,
 			// it would probably keep piling up until OOM.  let's just drop the traffic.
-			dropedMetrics.WithLabelValues(dest.Key, "slow_conn").Inc()
+			droppedMetricsCounter.WithLabelValues("slow_conn").Inc()
 			dest.SlowNow = true
 		}
 	}
@@ -270,7 +270,7 @@ func (dest *Destination) relay() {
 			log.Tracef("dest %s %s nonBlockingSpool -> added to spool", dest.Key, buf)
 		default:
 			log.Tracef("dest %s %s nonBlockingSpool -> dropping due to slow spool", dest.Key, buf)
-			dropedMetrics.WithLabelValues(dest.Key, "slow_pool").Inc()
+			droppedMetricsCounter.WithLabelValues("slow_pool").Inc()
 		}
 	}
 
@@ -352,7 +352,7 @@ func (dest *Destination) relay() {
 				nonBlockingSpool(buf)
 			} else {
 				log.Tracef("dest %v %s received from In -> no conn no spool -> drop", dest.Key, buf)
-				dropedMetrics.WithLabelValues(dest.Key, "conn_down_no_spool").Inc()
+				droppedMetricsCounter.WithLabelValues(dest.Key, "conn_down_no_spool").Inc()
 			}
 		}
 	}

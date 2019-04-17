@@ -22,7 +22,6 @@ import (
 	"github.com/graphite-ng/carbon-relay-ng/input"
 	"github.com/graphite-ng/carbon-relay-ng/input/manager"
 	"github.com/graphite-ng/carbon-relay-ng/logger"
-	"github.com/graphite-ng/carbon-relay-ng/stats"
 	tbl "github.com/graphite-ng/carbon-relay-ng/table"
 	"github.com/graphite-ng/carbon-relay-ng/ui/telnet"
 	"github.com/graphite-ng/carbon-relay-ng/ui/web"
@@ -125,19 +124,6 @@ func main() {
 	}
 
 	aggregator.InitMetrics()
-
-	go func() {
-		sys := stats.Gauge("what=virtual_memory.unit=Byte")
-		alloc := stats.Gauge("what=memory_allocated.unit=Byte")
-		ticker := time.NewTicker(time.Second)
-		var memstats runtime.MemStats
-		for range ticker.C {
-			runtime.ReadMemStats(&memstats)
-			sys.Update(int64(memstats.Sys))
-			alloc.Update(int64(memstats.Alloc))
-
-		}
-	}()
 
 	if config.Instrumentation.Graphite_addr != "" {
 		addr, err := net.ResolveTCPAddr("tcp", config.Instrumentation.Graphite_addr)

@@ -5,17 +5,17 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/Dieterbe/go-metrics"
 	dest "github.com/graphite-ng/carbon-relay-ng/destination"
 	"github.com/graphite-ng/carbon-relay-ng/matcher"
+	"github.com/graphite-ng/carbon-relay-ng/metrics"
+
+	"strconv"
+	"strings"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/cloudwatch"
-	"github.com/graphite-ng/carbon-relay-ng/stats"
 	log "github.com/sirupsen/logrus"
-	"strconv"
-	"strings"
 )
 
 // Publishes data points to the native AWS metrics service: CloudWatch
@@ -38,10 +38,7 @@ type CloudWatch struct {
 	flushMaxSize int
 	flushMaxWait time.Duration
 
-	numCloudWatchMessages metrics.Counter   // number of messages submitted to CloudWatch
-	durationTickFlush     metrics.Timer     // only updated after successful flush
-	tickFlushSize         metrics.Histogram // only updated after successful flush
-	bufferSize            metrics.Gauge
+	bm					 *metrics.BufferMetrics
 }
 
 // NewCloudWatch creates a route that writes metrics to the AWS service CloudWatch
@@ -65,10 +62,11 @@ func NewCloudWatch(key, prefix, sub, regex, awsProfile, awsRegion, awsNamespace 
 		flushMaxSize:       flushMaxSize,
 		flushMaxWait:       time.Duration(flushMaxWait) * time.Millisecond,
 
-		numCloudWatchMessages: stats.Counter("dest=cloudwatch" + "unit.Metric.what=CloudWatchMessagesPublished"),
-		durationTickFlush:     stats.Timer("dest=cloudwatch" + ".what=durationFlush.type=ticker"),
-		tickFlushSize:         stats.Histogram("dest=cloudwatch" + ".unit=B.what=FlushSize.type=ticker"),
-		bufferSize:            stats.Gauge("dest=cloudwatch" + ".unit=Metric.what=bufferSize"),
+		bm		newmet
+		// numCloudWatchMessages: stats.Counter("dest=cloudwatch" + "unit.Metric.what=CloudWatchMessagesPublished"),
+		// durationTickFlush:     stats.Timer("dest=cloudwatch" + ".what=durationFlush.type=ticker"),
+		// tickFlushSize:         stats.Histogram("dest=cloudwatch" + ".unit=B.what=FlushSize.type=ticker"),
+		// bufferSize:            stats.Gauge("dest=cloudwatch" + ".unit=Metric.what=bufferSize"),
 	}
 	r.bufferSize.Update(int64(bufSize))
 

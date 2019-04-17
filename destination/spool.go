@@ -3,31 +3,10 @@ package destination
 import (
 	"time"
 
+	"github.com/graphite-ng/carbon-relay-ng/metrics"
 	"github.com/graphite-ng/carbon-relay-ng/nsqd"
-	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/promauto"
 	log "github.com/sirupsen/logrus"
 )
-
-var spoolWriteDurationTimer = promauto.NewCounterVec(prometheus.CounterOpts{
-	Name: "destination_spool_write_duration",
-	Help: "The total duration to write on the spool",
-}, []string{"spool", "type"})
-
-var spoolbufferDurationTimer = promauto.NewCounterVec(prometheus.CounterOpts{
-	Name: "destination_spool_buffer_duration",
-	Help: "The total duration to write to the spool buffer",
-}, []string{"spool", "type"})
-
-var spoolBufferedMetricsGauge = promauto.NewGaugeVec(prometheus.GaugeOpts{
-	Name: "destination_spool_buffered_metrics_total",
-	Help: "The number of metrics in the spool buffer",
-}, []string{"spool"})
-
-var spoolIncomingCounter = promauto.NewCounterVec(prometheus.CounterOpts{
-	Name: "destination_spool_incoming_metrics_total",
-	Help: "The total number of metrics incoming",
-}, []string{"spool", "status"})
 
 // sits in front of nsqd diskqueue.
 // provides buffering (to accept input while storage is slow / sync() runs -every 1000 items- etc)
@@ -45,6 +24,7 @@ type Spool struct {
 
 	shutdownWriter chan bool
 	shutdownBuffer chan bool
+	sm             *metrics.SpoolMetrics
 }
 
 // parameters should be tuned so that:
@@ -57,20 +37,31 @@ func NewSpool(key, spoolDir string, bufSize int, maxBytesPerFile, syncEvery int6
 	// you receive in a second.
 	queue := nsqd.NewDiskQueue(dqName, spoolDir, maxBytesPerFile, syncEvery, syncPeriod).(*nsqd.DiskQueue)
 	s := Spool{
-		key:             key,
-		InRT:            make(chan []byte, 10),
-		InBulk:          make(chan []byte),
-		Out:             NewSlowChan(queue.ReadChan(), unspoolSleep),
-		spoolSleep:      spoolSleep,
-		unspoolSleep:    unspoolSleep,
-		queue:           queue,
-		queueBuffer:     make(chan []byte, bufSize),
-		shutdownWriter:  make(chan bool),
-		shutdownBuffer:  make(chan bool),
+		key:            key,
+		InRT:           make(chan []byte, 10),
+		InBulk:         make(chan []byte),
+		Out:            NewSlowChan(queue.ReadChan(), unspoolSleep),
+		spoolSleep:     spoolSleep,
+		unspoolSleep:   unspoolSleep,
+		queue:          queue,
+		queueBuffer:    make(chan []byte, bufSize),
+		shutdownWriter: make(chan bool),
+		shutdownBuffer: make(chan bool),
+		sm:             metrics.NewSpoolMetrics("duration", key, nil),
 	}
 	go s.Writer()
 	go s.Buffer()
 	return &s
+}
+
+func (s *Spool) write(buf []byte, writeType string) {
+	s.sm.IncomingMetrics.WithLabelValues(writeType).Inc()
+	pre := time.Now()
+	log.Debugf("spool %v satisfying spool `%s`", s.key, writeType)
+	log.Tracef("spool %s %s Writer -> queue.Put", s.key, buf)
+	s.queueBuffer <- buf
+	s.sm.Buffer.WriteDuration.Observe(time.Since(pre).Seconds())
+	s.sm.Buffer.BufferedMetrics.Inc()
 }
 
 // provides a channel based api to the queue
@@ -88,21 +79,9 @@ func (s *Spool) Writer() {
 		case <-s.shutdownWriter:
 			return
 		case buf := <-s.InRT: // wish we could somehow prioritize this higher
-			spoolIncomingCounter.WithLabelValues(s.key, "RT").Inc()
-			pre := time.Now()
-			log.Debugf("spool %v satisfying spool RT", s.key)
-			log.Tracef("spool %s %s Writer -> queue.Put", s.key, buf)
-			s.queueBuffer <- buf
-			spoolbufferDurationTimer.WithLabelValues(s.key).Add(time.Since(pre).Seconds())
-			spoolBufferedMetricsGauge.WithLabelValues(s.key).Inc()
+			s.write(buf, "RT")
 		case buf := <-s.InBulk:
-			spoolIncomingCounter.WithLabelValues(s.key, "bulk").Inc()
-			pre := time.Now()
-			log.Debugf("spool %v satisfying spool BULK", s.key)
-			log.Tracef("spool %s %s Writer -> queue.Put", s.key, buf)
-			s.queueBuffer <- buf
-			spoolbufferDurationTimer.WithLabelValues(s.key).Add(time.Since(pre).Seconds())
-			spoolBufferedMetricsGauge.WithLabelValues(s.key).Inc()
+			s.write(buf, "bulk")
 		}
 	}
 }
@@ -113,16 +92,17 @@ func (s *Spool) Ingest(bulkData [][]byte) {
 		time.Sleep(s.spoolSleep)
 	}
 }
+
 func (s *Spool) Buffer() {
 	for {
 		select {
 		case <-s.shutdownBuffer:
 			return
 		case buf := <-s.queueBuffer:
-			spoolBufferedMetricsGauge.WithLabelValues(s.key).Dec()
+			s.sm.Buffer.BufferedMetrics.Dec()
 			pre := time.Now()
 			s.queue.Put(buf)
-			spoolWriteDurationTimer.WithLabelValues(s.key).Add(time.Since(pre).Seconds())
+			s.sm.WriteDuration.Observe(time.Since(pre).Seconds())
 		}
 	}
 }

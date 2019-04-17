@@ -14,7 +14,7 @@ import (
 	"github.com/Dieterbe/go-metrics"
 	dest "github.com/graphite-ng/carbon-relay-ng/destination"
 	"github.com/graphite-ng/carbon-relay-ng/matcher"
-	"github.com/graphite-ng/carbon-relay-ng/stats"
+	newmetrics "github.com/graphite-ng/carbon-relay-ng/metrics"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -49,6 +49,8 @@ type PubSub struct {
 	flushMaxSize int
 	flushMaxWait time.Duration
 
+	bm *newmetrics.BufferMetrics
+
 	numPubSubMessages metrics.Counter   // number of pubsub.Messages submitted to google pubsub
 	numDropBuffFull   metrics.Counter   // metric drops due to queue full
 	durationTickFlush metrics.Timer     // only updated after successful flush
@@ -77,11 +79,11 @@ func NewPubSub(key, prefix, sub, regex, project, topic, format, codec string, bu
 		flushMaxSize: flushMaxSize,
 		flushMaxWait: time.Duration(flushMaxWait) * time.Millisecond,
 
-		numPubSubMessages: stats.Counter("dest=" + topic + "unit.Metric.what=pubsubMessagesPublished"),
-		durationTickFlush: stats.Timer("dest=" + topic + ".what=durationFlush.type=ticker"),
-		tickFlushSize:     stats.Histogram("dest=" + topic + ".unit=B.what=FlushSize.type=ticker"),
-		bufferSize:        stats.Gauge("dest=" + topic + ".unit=Metric.what=bufferSize"),
-		numDropBuffFull:   stats.Counter("dest=" + topic + ".unit=Metric.action=drop.reason=queue_full"),
+		// numPubSubMessages: stats.Counter("dest=" + topic + "unit.Metric.what=pubsubMessagesPublished"),
+		// durationTickFlush: stats.Timer("dest=" + topic + ".what=durationFlush.type=ticker"),
+		// tickFlushSize:     stats.Histogram("dest=" + topic + ".unit=B.what=FlushSize.type=ticker"),
+		// bufferSize:        stats.Gauge("dest=" + topic + ".unit=Metric.what=bufferSize"),
+		// numDropBuffFull:   stats.Counter("dest=" + topic + ".unit=Metric.action=drop.reason=queue_full"),
 	}
 	r.bufferSize.Update(int64(bufSize))
 
