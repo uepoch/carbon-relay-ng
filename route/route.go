@@ -148,6 +148,7 @@ func (route *SendAllMatch) Dispatch(buf []byte) {
 			// dest should handle this as quickly as it can
 			log.Tracef("route %s sending to dest %s: %s", route.key, dest.Key, buf)
 			dest.In <- buf
+			route.rm.OutMetrics.Inc()
 		}
 	}
 }
@@ -160,6 +161,7 @@ func (route *SendFirstMatch) Dispatch(buf []byte) {
 			// dest should handle this as quickly as it can
 			log.Tracef("route %s sending to dest %s: %s", route.key, dest.Key, buf)
 			dest.In <- buf
+			route.rm.OutMetrics.Inc()
 			break
 		}
 	}
@@ -173,8 +175,10 @@ func (route *ConsistentHashing) Dispatch(buf []byte) {
 		// dest should handle this as quickly as it can
 		log.Tracef("route %s sending to dest %s: %s", route.key, dest.Key, name)
 		dest.In <- buf
+		route.rm.OutMetrics.Inc()
 	} else {
 		log.Errorf("could not parse %s", buf)
+		route.rm.Errors.WithLabelValues("parse").Inc()
 	}
 }
 

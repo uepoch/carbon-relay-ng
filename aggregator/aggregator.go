@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/graphite-ng/carbon-relay-ng/clock"
+	"github.com/graphite-ng/carbon-relay-ng/metrics"
 )
 
 type Aggregator struct {
@@ -36,6 +37,7 @@ type Aggregator struct {
 	wg           sync.WaitGroup       // tracks worker running state
 	now          func() time.Time     // returns current time. wraps time.Now except in some unit tests
 	tick         <-chan time.Time     // controls when to flush
+	am           *metrics.AggregatorMetrics
 }
 
 type msg struct {
@@ -108,6 +110,7 @@ func NewMocked(fun, regex, prefix, sub, outFmt string, cache bool, interval, wai
 		shutdown:     make(chan struct{}),
 		now:          now,
 		tick:         tick,
+		am: 		  metrics.NewAggregatorMetrics(prefix)
 	}
 	if prefix != "" {
 		a.prefix = []byte(prefix)
@@ -134,7 +137,7 @@ func (a *Aggregator) AddOrCreate(key string, ts uint32, quantized uint, value fl
 		key,
 		quantized,
 	}
-	rangeTracker.Sample(ts)
+	a.am.CheckTimestamp(ts)
 	proc, ok := a.aggregations[k]
 	if ok {
 		proc.Add(value, ts)

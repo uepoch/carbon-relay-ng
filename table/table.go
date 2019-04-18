@@ -145,6 +145,7 @@ func (table *Table) Dispatch(buf []byte) {
 		dropRaw := aggregator.AddMaybe(fields, val, ts)
 		if dropRaw {
 			log.Tracef("table dropped %s, matched dropRaw aggregator %s", buf_copy, aggregator.Regex)
+			table.tm.Unrouted.WithLabelValues("drop_after_aggregation").Inc()
 			return
 		}
 	}
@@ -170,7 +171,6 @@ func (table *Table) Dispatch(buf []byte) {
 // DispatchAggregate dispatches aggregation output by routing metrics into the matching routes.
 // buf is assumed to have no whitespace at the end
 func (table *Table) DispatchAggregate(buf []byte) {
-	defer metrics.ObserveSince(table.tm.RoutingDuration, time.Now())
 	conf := table.config.Load().(TableConfig)
 	routed := false
 	log.Tracef("table received aggregate packet %s", buf)
