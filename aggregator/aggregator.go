@@ -137,7 +137,7 @@ func (a *Aggregator) AddOrCreate(key string, ts uint32, quantized uint, value fl
 		key,
 		quantized,
 	}
-	a.am.CheckTimestamp(ts)
+	a.am.ObserveTimestamp(ts)
 	proc, ok := a.aggregations[k]
 	if ok {
 		proc.Add(value, ts)
@@ -153,7 +153,7 @@ func (a *Aggregator) AddOrCreate(key string, ts uint32, quantized uint, value fl
 			a.aggregations[k] = proc
 			return
 		}
-		counterTooOldMetrics.Inc()
+		a.am.Dropped.Inc()
 	}
 }
 

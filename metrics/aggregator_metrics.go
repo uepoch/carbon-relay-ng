@@ -31,52 +31,53 @@ func NewCacheMetrics(namespace string, labels prometheus.Labels) *CacheMetrics {
 }
 
 type AggregatorMetrics struct {
-	Cache            *CacheMetrics
-	RoutingDuration  prometheus.Histogram
-	In               prometheus.Counter
-	Unrouted         *prometheus.CounterVec
-	LowestTimestamp  prometheus.Gauge
-	HighestTimestamp prometheus.Gauge
+	Cache                   *CacheMetrics
+	Dropped                 prometheus.Counter
+	lowestTimestampCounter  prometheus.Gauge
+	highestTimestampCounter prometheus.Gauge
+	lowTs                   uint32
+	highTs                  uint32
 }
 
 func NewAggregatorMetrics(id string, labels prometheus.Labels) *AggregatorMetrics {
 	namespace := aggregatorNamespace
-	cm := AggregatorMetrics{}
+	am := AggregatorMetrics{}
 
 	if labels == nil {
 		labels = prometheus.Labels{}
 	}
 	labels["id"] = id
 
-	cm.Cache = NewCacheMetrics(namespace, labels)
+	am.Cache = NewCacheMetrics(namespace, labels)
 
-	tsVec := promauto.NewGaugeVec(prometheus.CounterOpts{
+	tsVec := promauto.NewGaugeVec(prometheus.GaugeOpts{
 		Namespace:   namespace,
 		Name:        "timestamp_value",
 		Help:        "Lowest and Highest Timestamp registered",
 		ConstLabels: labels,
 	}, []string{"type"})
 
-	cm.HighestTimestamp = tsVec.WithLabelValues("highest")
-	cm.LowestTimestamp = tsVec.WithLabelValues("lowest")
+	am.highestTimestampCounter = tsVec.WithLabelValues("highest")
+	am.lowestTimestampCounter = tsVec.WithLabelValues("lowest")
 
-	cm.In = promauto.NewCounter(prometheus.CounterOpts{
+	am.Dropped = promauto.NewCounter(prometheus.CounterOpts{
 		Namespace:   namespace,
-		Name:        "incoming_metrics_total",
-		Help:        "total number of incoming metrics",
+		Name:        "dropped_metrics_total",
+		Help:        "Total number of metrics dropped because of their age",
 		ConstLabels: labels,
 	})
-	cm.Unrouted = promauto.NewCounterVec(prometheus.CounterOpts{
-		Namespace:   namespace,
-		Name:        "unrouted_metrics_total",
-		Help:        "Total number of metrics not routed for `reason`",
-		ConstLabels: labels,
-	}, []string{"reason"})
 
-	return &cm
+	return &am
 }
 
 func (am *AggregatorMetrics) ObserveTimestamp(ts uint32) {
-	am.
-
+	if am.lowTs > ts || am.lowTs == 0 {
+		am.lowTs = ts
+		am.lowestTimestampCounter.Set(float64(ts))
+		return
+	}
+	if am.highTs < ts {
+		am.highTs = ts
+		am.highestTimestampCounter.Set(float64(ts))
+	}
 }
