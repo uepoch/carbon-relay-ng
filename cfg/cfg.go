@@ -13,6 +13,7 @@ type Config struct {
 	UDP_workers             int
 	Plain_read_timeout      Duration
 	Pickle_addr             string
+	Discovery               *Discovery
 	Pickle_read_timeout     Duration
 	Admin_addr              string
 	Http_addr               string
@@ -70,6 +71,12 @@ type Aggregation struct {
 	Interval int
 	Wait     int
 	DropRaw  bool
+}
+
+type Destination struct {
+	Prefix            string
+	FlushInterval     time.Duration
+	ReconnectInterval time.Duration
 }
 
 type Route struct {
