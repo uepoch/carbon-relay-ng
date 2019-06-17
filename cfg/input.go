@@ -19,8 +19,8 @@ const (
 )
 
 const (
-	decodingErrorFmt = "error while decoding %s structure: %s"
-	initErrorFmt     = "error while initializing %s structure: %s"
+	decodingErrorFmt = "can't decode %s structure: %s"
+	initErrorFmt     = "cant initialize %s structure: %s"
 )
 
 const (
@@ -35,6 +35,7 @@ var (
 	kafkaEmptyConsumerGroupError = errors.New("consumer_group can't be empty in kafka config")
 	kafkaEmptyTopicError         = errors.New("topic can't be empty in kafka config")
 	kafkaEmptyBrokersError       = errors.New("brokers can't be empty in kafka config")
+	noInputError                 = errors.New("no inputs could be found")
 )
 
 type InputConfig interface {
@@ -138,6 +139,9 @@ func (c *Config) ProcessInputConfig() error {
 			return fmt.Errorf(initErrorFmt, configMap["type"], err)
 		}
 		inputs[i] = l
+	}
+	if c.NoInputError && len(inputs) == 0 {
+		return noInputError
 	}
 	c.Inputs = inputs
 	return nil
