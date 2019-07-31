@@ -117,6 +117,16 @@ func TestConsistentHonorMutation(t *testing.T) {
 	assert.Equal(t, destOmeletteEpoisse, destOmeletteLangre)
 }
 
+func TestConsistentDistribution(t *testing.T) {
+	chRoute := testBaseCHRoute(1000)
+
+	destTest, err := chRoute.GetDestinationForName([]byte("test"))
+	assert.Nil(t, err)
+	destToto, err := chRoute.GetDestinationForName([]byte("toto"))
+	assert.Nil(t, err)
+	assert.NotEqual(t, destTest, destToto)
+}
+
 func benchRoutingMutation(b *testing.B, cached bool, randKey bool) {
 	var cacheSize = 0
 	if cached {
