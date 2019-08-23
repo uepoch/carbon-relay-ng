@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/Shopify/sarama"
+	"github.com/segmentio/kafka-go"
 
 	"github.com/mitchellh/mapstructure"
 
@@ -69,42 +69,90 @@ func (c *ListenerConfig) Build() (input.Input, error) {
 	return l, nil
 }
 
+// for more informations about the fields, go look at https://github.com/segmentio/kafka-go/blob/master/reader.go#L291
 type KafkaConfig struct {
-	baseInputConfig `mapstructure:",squash"`
-	ID              string   `mapstructure:"client_id,omitempty"`
-	Brokers         []string `mapstructure:"brokers,omitempty"`
-	Topic           string   `mapstructure:"topic,omitempty"`
-	AutoOffsetReset string   `mapstructure:"auto_offset_reset,omitempty"`
-	ConsumerGroup   string   `mapstructure:"consumer_group,omitempty"`
+	baseInputConfig        `mapstructure:",squash"`
+	ID                     string        `mapstructure:"client_id,omitempty"`
+	Brokers                []string      `mapstructure:"brokers,omitempty"`
+	Topic                  string        `mapstructure:"topic,omitempty"`
+	ConsumerGroupID        string        `mapstructure:"consumer_group_id,omitempty"`
+	QueueCapacity          int           `mapstructure:"queue_capacity,omitempty"`
+	MinBytes               int           `mapstructure:"min_bytes,omitempty"`
+	MaxBytes               int           `mapstructure:"max_bytes,omitempty"`
+	CommitInterval         time.Duration `mapstructure:"commit_interval,omitempty"`
+	PartitionWatchInterval time.Duration `mapstructure:"partition_watch_interval,omitempty"`
+	SessionTimeout         time.Duration `mapstructure:"session_timeout,omitempty"`
+	RebalanceTimeout       time.Duration `mapstructure:"rebalance_timeout,omitempty"`
+	BackoffMin             time.Duration `mapstructure:"backoff_min,omitempty"`
+	BackoffMax             time.Duration `mapstructure:"backoff_max,omitempty"`
+	MaxAttempts            int           `mapstructure:"max_attempts,omitempty"`
 }
 
 func (c *KafkaConfig) Build() (input.Input, error) {
-	// Validate offset
-	var offset int64
-	switch c.AutoOffsetReset {
-	case "newest":
-		offset = sarama.OffsetNewest
-	case "earliest":
-		offset = sarama.OffsetOldest
-	default:
-		return nil, fmt.Errorf(kafkaInvalidAutoOffsetErrorFmt, c.AutoOffsetReset)
-	}
+
+	readerCfg := &kafka.ReaderConfig{}
 
 	if len(c.Brokers) == 0 {
 		return nil, kafkaEmptyBrokersError
 	}
-	if c.ConsumerGroup == "" {
+	readerCfg.Brokers = c.Brokers
+
+	if c.ConsumerGroupID == "" {
 		return nil, kafkaEmptyConsumerGroupError
 	}
+	readerCfg.GroupID = c.ConsumerGroupID
+
 	if c.Topic == "" {
 		return nil, kafkaEmptyTopicError
+	}
+	readerCfg.Topic = c.Topic
+
+	// 0 Mean disabled
+	readerCfg.CommitInterval = c.CommitInterval
+
+	readerCfg.MinBytes = c.MinBytes
+	readerCfg.MaxBytes = c.MaxBytes
+
+	if c.PartitionWatchInterval != 0 {
+		readerCfg.WatchPartitionChanges = true
+		readerCfg.PartitionWatchInterval = c.PartitionWatchInterval
+	}
+
+	readerCfg.MaxAttempts = c.MaxAttempts
+	if readerCfg.MaxAttempts == 0 {
+		readerCfg.MaxAttempts = 3
+	}
+
+	readerCfg.QueueCapacity = c.QueueCapacity
+	if readerCfg.QueueCapacity == 0 {
+		readerCfg.QueueCapacity = 1000
+	}
+
+	readerCfg.RebalanceTimeout = c.RebalanceTimeout
+	if readerCfg.RebalanceTimeout == 0 {
+		readerCfg.RebalanceTimeout = 30 * time.Second
+	}
+
+	readerCfg.SessionTimeout = c.SessionTimeout
+	if readerCfg.SessionTimeout == 0 {
+		readerCfg.SessionTimeout = 30 * time.Second
+	}
+
+	readerCfg.ReadBackoffMin = c.BackoffMin
+	if readerCfg.ReadBackoffMin == 0 {
+		readerCfg.ReadBackoffMin = 100 * time.Millisecond
+	}
+
+	readerCfg.ReadBackoffMax = c.BackoffMax
+	if readerCfg.ReadBackoffMax == 0 {
+		readerCfg.ReadBackoffMax = 2 * time.Second
 	}
 
 	h, err := c.Handler()
 	if err != nil {
 		return nil, fmt.Errorf(handlerErrorFmt, fmt.Sprintf("kafka config: %s", err))
 	}
-	l := input.NewKafka(c.ID, c.Brokers, c.Topic, offset, c.ConsumerGroup, h)
+	l := input.NewKafkaNew(c.ID, readerCfg, h)
 	return l, nil
 }
 

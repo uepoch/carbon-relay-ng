@@ -6,9 +6,98 @@ import (
 	"strings"
 
 	"github.com/Shopify/sarama"
+	"github.com/segmentio/kafka-go"
+
 	"github.com/graphite-ng/carbon-relay-ng/encoding"
+	_ "github.com/segmentio/kafka-go/gzip"
+	_ "github.com/segmentio/kafka-go/snappy"
 	"go.uber.org/zap"
 )
+
+type KafkaNew struct {
+	BaseInput
+
+	reader *kafka.Reader
+	ctx    context.Context
+	closed chan bool
+	logger *zap.Logger
+}
+
+func NewKafkaNew(id string, c *kafka.ReaderConfig, h encoding.FormatAdapter) (*KafkaNew, error) {
+	if err := c.Validate(); err != nil {
+		return nil, err
+	}
+	logger := zap.L()
+	logger = logger.With(zap.String("id", id), zap.String("topic", c.Topic), zap.String("group_id", c.GroupID))
+
+	stdLogger := zap.NewStdLog(logger)
+	c.Logger = stdLogger
+	c.ErrorLogger = stdLogger
+
+	reader := kafka.NewReader(*c)
+
+	return &KafkaNew{
+		BaseInput: BaseInput{handler: h, name: fmt.Sprintf("kafka[topic=\"%s\",cg=\"%s\"]", c.Topic, c.GroupID)},
+		reader:    reader,
+		ctx:       context.Background(),
+		closed:    make(chan bool),
+		logger:    logger,
+	}, nil
+}
+
+func (kafka *KafkaNew) Name() string {
+	return "kafka"
+}
+
+func (k *KafkaNew) run() {
+
+}
+
+func (k *KafkaNew) Start(d Dispatcher) error {
+	k.Dispatcher = d
+
+	ready := make(chan bool, 0)
+
+	msg, err := k.reader.ReadMessage(k.ctx)
+	if err != nil {
+		return err
+	}
+
+	go k.run()
+
+	go func(c chan bool) {
+		for {
+			select {
+			case <-c:
+				return
+			default:
+			}
+			err := k.client.Consume(k.ctx, strings.Fields(k.topic), k)
+			if err != nil {
+				k.logger.Error("kafka input error Consume method ", zap.Error(err))
+			}
+			k.ready = make(chan bool, 0)
+		}
+	}(k.closed)
+	<-k.ready // Await till the consumer has been set up
+	k.logger.Info("Sarama consumer up and running!...")
+	return nil
+
+}
+func (k *Kafka) close() {
+	err := k.client.Close()
+	if err != nil {
+		k.logger.Error("kafka input closed with errors.", zap.Error(err))
+	} else {
+		k.logger.Info("kafka input closed correctly.")
+	}
+}
+
+func (k *Kafka) Stop() error {
+	close(k.closed)
+	k.close()
+	return nil
+}
 
 type Kafka struct {
 	BaseInput
