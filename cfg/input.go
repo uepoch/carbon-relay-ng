@@ -3,6 +3,7 @@ package cfg
 import (
 	"errors"
 	"fmt"
+	"runtime"
 	"time"
 
 	"github.com/segmentio/kafka-go"
@@ -33,7 +34,7 @@ const (
 )
 
 var (
-	kafkaEmptyConsumerGroupError = errors.New("consumer_group can't be empty in kafka config")
+	kafkaEmptyConsumerGroupError = errors.New("consumer_group_id can't be empty in kafka config")
 	kafkaEmptyTopicError         = errors.New("topic can't be empty in kafka config")
 	kafkaEmptyBrokersError       = errors.New("brokers can't be empty in kafka config")
 	noInputError                 = errors.New("no inputs could be found")
@@ -86,6 +87,7 @@ type KafkaConfig struct {
 	BackoffMin             time.Duration `mapstructure:"backoff_min,omitempty"`
 	BackoffMax             time.Duration `mapstructure:"backoff_max,omitempty"`
 	MaxAttempts            int           `mapstructure:"max_attempts,omitempty"`
+	Workers                int           `mapstructure:"workers,omitempty"`
 }
 
 func (c *KafkaConfig) Build() (input.Input, error) {
@@ -148,12 +150,16 @@ func (c *KafkaConfig) Build() (input.Input, error) {
 		readerCfg.ReadBackoffMax = 2 * time.Second
 	}
 
+	workers := c.Workers
+	if workers == 0 {
+		runtime.NumCPU()
+	}
+
 	h, err := c.Handler()
 	if err != nil {
 		return nil, fmt.Errorf(handlerErrorFmt, fmt.Sprintf("kafka config: %s", err))
 	}
-	l := input.NewKafkaNew(c.ID, readerCfg, h)
-	return l, nil
+	return input.NewKafkaNew(c.ID, readerCfg, h, workers)
 }
 
 func (c *Config) ProcessInputConfig() error {
@@ -163,10 +169,19 @@ func (c *Config) ProcessInputConfig() error {
 	inputs := make([]input.Input, len(c.InputsRaw))
 	for i := 0; i < len(c.InputsRaw); i++ {
 		configMap := c.InputsRaw[i]
+		tRaw, ok := configMap["type"]
+		if !ok {
+			return fmt.Errorf("type must be set")
+		}
+		t, ok := tRaw.(string)
+		if !ok {
+			return fmt.Errorf("type must be a string")
+		}
+
 		var n InputConfig
-		switch configMap["type"].(string) {
+		switch t {
 		case KafkaConfigType:
-			n = &KafkaConfig{AutoOffsetReset: "earliest"}
+			n = &KafkaConfig{}
 		case ListenerConfigType:
 			n = &ListenerConfig{Workers: 1, ReadTimeout: 2 * time.Minute}
 		case "":
@@ -188,11 +203,11 @@ func (c *Config) ProcessInputConfig() error {
 		}
 		err = d.Decode(configMap)
 		if err != nil {
-			return fmt.Errorf(decodingErrorFmt, configMap["type"], err)
+			return fmt.Errorf(decodingErrorFmt, t, err)
 		}
 		l, err := n.Build()
 		if err != nil {
-			return fmt.Errorf(initErrorFmt, configMap["type"], err)
+			return fmt.Errorf(initErrorFmt, t, err)
 		}
 		inputs[i] = l
 	}
