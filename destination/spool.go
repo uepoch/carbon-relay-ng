@@ -88,7 +88,6 @@ func (s *Spool) Reader() {
 	ch := s.Out
 	queue := s.queue
 
-	// chunk := make([]encoding.Datapoint, 0, s.chunkSize)
 	h := encoding.NewPlain(false, false)
 	for {
 		if queue.Length() == 0 {
@@ -105,15 +104,12 @@ func (s *Spool) Reader() {
 			s.logger.Error("failed to deserialize datapoint", zap.Error(err))
 			continue
 		}
-		// for i := 0; i < len(chunk); i++ {
-		// 	dp := chunk[i]
 		select {
 		case <-s.shutdownReader:
 			close(ch)
 			return
 		case ch <- dp:
 		}
-		// }
 	}
 }
 
@@ -155,14 +151,10 @@ func (s *Spool) Buffer() {
 		case dp := <-s.queueBuffer:
 			s.sm.Buffer.BufferedMetrics.Dec()
 
-			// chunk = append(chunk, dp)
-
-			// if len(chunk) == s.chunkSize {
 			pre := time.Now()
 			s.queue.Enqueue(dp.AppendToBuf(buf))
 			chunk = chunk[:0]
 			s.sm.WriteDuration.Observe(time.Since(pre).Seconds())
-			// }
 		}
 	}
 }
