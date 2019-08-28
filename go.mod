@@ -20,6 +20,8 @@ require (
 	github.com/kisielk/og-rek v1.0.0
 	github.com/libp2p/go-reuseport v0.0.0-20190411201116-b72b23b78b80
 	github.com/mitchellh/mapstructure v1.1.2
+	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
+	github.com/modern-go/reflect2 v1.0.1 // indirect
 	github.com/pierrec/lz4 v2.2.6+incompatible // indirect
 	github.com/prometheus/client_golang v1.1.0
 	github.com/prometheus/client_model v0.0.0-20190812154241-14fe0d1b01d4 // indirect
