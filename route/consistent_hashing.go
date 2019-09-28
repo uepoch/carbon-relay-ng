@@ -46,7 +46,9 @@ func (cs *ConsistentHashing) DelDestination(index int) error {
 	if err != nil {
 		return err
 	}
-	cs.baseRoute.DelDestination(index)
+	if err = cs.baseRoute.DelDestination(index); err != nil {
+		cs.logger.Warn("error removing destination from base route", zap.String("destination_key", d.Key))
+	}
 	cs.Lock()
 	defer cs.Unlock()
 	cs.Ring = cs.Ring.RemoveNode(d.Key)
@@ -101,8 +103,4 @@ func (cs *ConsistentHashing) Dispatch(dp encoding.Datapoint) {
 		zap.String("metricName", dp.Name))
 	dest.In <- dp
 	cs.baseRoute.rm.OutMetrics.Inc()
-}
-
-func (route *ConsistentHashing) Snapshot() Snapshot {
-	return makeSnapshot(&route.baseRoute)
 }

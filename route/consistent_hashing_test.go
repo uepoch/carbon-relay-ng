@@ -35,14 +35,8 @@ func testBaseCHRoute(nodeNum int) *ConsistentHashing {
 
 func benchmarkCH(nodeNum, keyLen int, b *testing.B) {
 	nuller := make(chan []byte, 100)
-	stop := make(chan struct{})
 	go func() {
-		for {
-			select {
-			case _ = <-stop:
-				return
-			case _ = <-nuller:
-			}
+		for range nuller {
 		}
 	}()
 	chRoute := testBaseCHRoute(nodeNum)
@@ -52,9 +46,8 @@ func benchmarkCH(nodeNum, keyLen int, b *testing.B) {
 	}
 	for i := 0; i < b.N; i++ {
 		keyName[(i/8)%len(keyName)] = byte('0' + (i % 10))
-		chRoute.GetDestinationForName(keyName)
+		_, _ = chRoute.GetDestinationForName(keyName)
 	}
-	close(stop)
 }
 func BenchmarkCH10D50B(b *testing.B) {
 	benchmarkCH(10, 50, b)

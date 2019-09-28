@@ -33,14 +33,12 @@ type RoutingMutator struct {
 
 func NewRoutingMutator(table map[string]string, cacheSize int) (*RoutingMutator, error) {
 	mutators := []*Mutator{}
-	if table != nil {
-		for m, out := range table {
-			re, err := regexp.Compile(m)
-			if err != nil {
-				return nil, fmt.Errorf("can't compile matcher `%s` to a valid regex: %s", m, err)
-			}
-			mutators = append(mutators, &Mutator{re, []byte(out)})
+	for m, out := range table {
+		re, err := regexp.Compile(m)
+		if err != nil {
+			return nil, fmt.Errorf("can't compile matcher `%s` to a valid regex: %s", m, err)
 		}
+		mutators = append(mutators, &Mutator{re, []byte(out)})
 	}
 	sort.SliceStable(mutators, func(i, j int) bool {
 		return mutators[i].Matcher.String() < mutators[j].Matcher.String()
@@ -53,7 +51,8 @@ func NewRoutingMutator(table map[string]string, cacheSize int) (*RoutingMutator,
 	}
 	return &RoutingMutator{
 		sync.RWMutex{}, mutators, cache, &sync.Pool{New: func() interface{} {
-			return make([]byte, 0, 100)
+			new := make([]byte, 0, 100)
+			return &new
 		}},
 	}, nil
 }
@@ -67,11 +66,11 @@ func (rm *RoutingMutator) HandleString(key string) (string, bool) {
 }
 
 func (rm *RoutingMutator) HandleBuf(bufKey []byte) ([]byte, bool) {
-	ret := rm.pool.Get().([]byte)
+	ret := *rm.pool.Get().(*[]byte)
 	defer func() {
 		if len(ret) < 300 {
 			ret = ret[:0]
-			rm.pool.Put(ret)
+			rm.pool.Put(&ret)
 		}
 	}()
 	if rm.cache != nil {
