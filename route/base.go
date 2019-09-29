@@ -22,16 +22,18 @@ type baseRoute struct {
 	logger    *zap.Logger
 }
 
-func newBaseRoute(key, routeType string) *baseRoute {
-	return &baseRoute{
+func newBaseRoute(key, routeType string, matcher *matcher.Matcher) *baseRoute {
+	r := &baseRoute{
 		sync.Mutex{},
 		atomic.Value{},
 		key,
 		routeType,
 		metrics.NewRouteMetrics(key, routeType, nil),
 		map[string]*dest.Destination{},
-		zap.L().With(zap.String("routekey", key), zap.String("route_type", routeType)),
+		zap.L().With(zap.String("route_key", key), zap.String("route_type", routeType)),
 	}
+	r.config.Store(&baseConfig{matcher: *matcher})
+	return r
 }
 
 // Add adds a new Destination to the Route and automatically runs it for you.

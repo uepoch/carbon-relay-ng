@@ -22,8 +22,13 @@ func NewKafkaRoute(key, prefix, sub, regex string, config kafka.WriterConfig, ro
 	if err := config.Validate(); err != nil {
 		return nil, fmt.Errorf("invalid config: %s", err)
 	}
+
+	m, err := matcher.New(prefix, sub, regex)
+	if err != nil {
+		return nil, err
+	}
 	k := Kafka{
-		baseRoute: *newBaseRoute(key, "kafka"),
+		baseRoute: *newBaseRoute(key, "kafka", m),
 		router:    routingMutator,
 		Writer:    kafka.NewWriter(config),
 		ctx:       context.TODO(),
@@ -33,13 +38,6 @@ func NewKafkaRoute(key, prefix, sub, regex string, config kafka.WriterConfig, ro
 	}
 	k.rm = metrics.NewRouteMetrics(key, "kafka", nil)
 	k.logger = k.logger.With(zap.String("kafka_topic", config.Topic))
-
-	// Don't remember why it's required
-	m, err := matcher.New(prefix, sub, regex)
-	if err != nil {
-		return nil, err
-	}
-	k.config.Store(baseConfig{*m, nil})
 
 	return &k, nil
 }

@@ -27,6 +27,7 @@ require (
 	github.com/rcrowley/go-metrics v0.0.0-20190826022208-cac0b30c2563 // indirect
 	github.com/segmentio/kafka-go v0.3.3
 	github.com/serialx/hashring v0.0.0-20190422032157-8b2912629002
+	github.com/smallnest/weighted v0.0.0-20190919111400-6285d794850d
 	github.com/spaolacci/murmur3 v1.1.0 // indirect
 	github.com/stretchr/testify v1.4.0
 	github.com/syndtr/goleveldb v1.0.0
