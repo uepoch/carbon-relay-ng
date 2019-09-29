@@ -22,7 +22,7 @@ type baseRoute struct {
 	logger    *zap.Logger
 }
 
-func newBaseRoute(key, routeType string, matcher *matcher.Matcher) *baseRoute {
+func newBaseRoute(key, routeType string, matcher matcher.Matcher) *baseRoute {
 	r := &baseRoute{
 		sync.Mutex{},
 		atomic.Value{},
@@ -32,7 +32,7 @@ func newBaseRoute(key, routeType string, matcher *matcher.Matcher) *baseRoute {
 		map[string]*dest.Destination{},
 		zap.L().With(zap.String("route_key", key), zap.String("route_type", routeType)),
 	}
-	r.config.Store(&baseConfig{matcher: *matcher})
+	r.config.Store(baseConfig{matcher: matcher})
 	return r
 }
 

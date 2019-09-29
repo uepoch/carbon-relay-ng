@@ -18,7 +18,7 @@ func NewSendFirstMatch(key, prefix, sub, regex string, destinations []*dest.Dest
 	if err != nil {
 		return nil, err
 	}
-	r := &SendFirstMatch{*newBaseRoute(key, "SendFirstMatch", m)}
+	r := &SendFirstMatch{*newBaseRoute(key, "SendFirstMatch", *m)}
 	r.config.Store(baseConfig{*m, destinations})
 	r.run()
 	return r, nil

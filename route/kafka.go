@@ -28,7 +28,7 @@ func NewKafkaRoute(key, prefix, sub, regex string, config kafka.WriterConfig, ro
 		return nil, err
 	}
 	k := Kafka{
-		baseRoute: *newBaseRoute(key, "kafka", m),
+		baseRoute: *newBaseRoute(key, "kafka", *m),
 		router:    routingMutator,
 		Writer:    kafka.NewWriter(config),
 		ctx:       context.TODO(),

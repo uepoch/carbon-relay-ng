@@ -18,7 +18,7 @@ func NewSendAllMatch(key, prefix, sub, regex string, destinations []*dest.Destin
 	if err != nil {
 		return nil, err
 	}
-	r := &SendAllMatch{*newBaseRoute(key, "SendAllMatch", m)}
+	r := &SendAllMatch{*newBaseRoute(key, "SendAllMatch", *m)}
 	r.config.Store(baseConfig{*m, destinations})
 	r.run()
 	return r, nil

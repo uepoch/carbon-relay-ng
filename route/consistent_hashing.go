@@ -25,7 +25,7 @@ func NewConsistentHashing(key, prefix, sub, regex string, destinations []*dest.D
 	}
 	ring := hashring.New(nil)
 	r := &ConsistentHashing{
-		*newBaseRoute(key, "ConsistentHashing", m),
+		*newBaseRoute(key, "ConsistentHashing", *m),
 		ring,
 		routingMutator,
 	}

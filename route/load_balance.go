@@ -17,7 +17,7 @@ type LoadBalance struct {
 // We will automatically run the route and the given destinations
 func NewLoadBalance(key string, matcher *matcher.Matcher, destinations []*dest.Destination) (Route, error) {
 	r := &LoadBalance{
-		baseRoute: *newBaseRoute(key, "LoadBalance", matcher),
+		baseRoute: *newBaseRoute(key, "LoadBalance", *matcher),
 	}
 
 	s := selector.NewLVSSelector(r.logger)
