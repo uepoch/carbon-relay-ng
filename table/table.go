@@ -676,7 +676,12 @@ func (table *Table) InitRoutes(config cfg.Config, meta toml.MetaData) error {
 				return fmt.Errorf("must get at least 2 destination for route '%s'", routeConfig.Key)
 			}
 			m, err := matcher.New(routeConfig.Prefix, routeConfig.Substr, routeConfig.Regex)
-			route, err := route.NewLoadBalance(routeConfig.Key)
+			route, err := route.NewLoadBalance(routeConfig.Key, m, destinations)
+			if err != nil {
+				routeConfigLogger.Error("error adding route", zap.Error(err))
+				return fmt.Errorf("error adding route '%s'", routeConfig.Key, err)
+			}
+			table.AddRoute(route)
 		case "consistentHashing":
 			destinations, err := imperatives.ParseDestinations(routeConfig.Destinations, table, false, routeConfig.Key)
 			if err != nil {
@@ -689,13 +694,13 @@ func (table *Table) InitRoutes(config cfg.Config, meta toml.MetaData) error {
 			routingMutator, err := route.NewRoutingMutator(routeConfig.RoutingMutations, routeConfig.CacheSize)
 			if err != nil {
 				routeConfigLogger.Error("can't create the routing mutator", zap.Error(err))
-				return fmt.Errorf("can't create the routing mutator: %s", err)
+				return fmt.Errorf("can't create the routing mutator for route '%s': %s", routeConfig.Key, err)
 			}
 
 			route, err := route.NewConsistentHashing(routeConfig.Key, routeConfig.Prefix, routeConfig.Substr, routeConfig.Regex, destinations, routingMutator)
 			if err != nil {
 				routeConfigLogger.Error("error adding route", zap.Error(err))
-				return fmt.Errorf("error adding route '%s'", routeConfig.Key)
+				return fmt.Errorf("error adding route '%s': %s", routeConfig.Key, err)
 			}
 			table.AddRoute(route)
 		case "kafka":

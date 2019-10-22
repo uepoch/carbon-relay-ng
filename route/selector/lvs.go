@@ -129,10 +129,11 @@ func (s *LVSSelector) GetDestination() *dest.Destination {
 	if s.n == 1 {
 		return s.dests[0].Dest
 	}
-
-	for {
-		s.i = (s.i + 1) % s.n
-		if s.i == 0 {
+	passed := false
+	next := (s.i + 1) %s.n
+	for i := next;!passed || i != next ; i = (i+1)%s.n {
+		passed = true
+		if i == 0 {
 			// Lower the weight to select lower nodes
 			s.currWeight = s.currWeight - s.gcd
 			if s.currWeight <= 0 {
@@ -141,10 +142,12 @@ func (s *LVSSelector) GetDestination() *dest.Destination {
 			}
 		}
 
-		if s.dests[s.i].Dest.Online && s.dests[s.i].Weight >= s.currWeight {
-			return s.dests[s.i].Dest
+		if s.dests[i].Dest.Online && s.dests[i].Weight >= s.currWeight {
+			s.i = i
+			return s.dests[i].Dest
 		}
 	}
+	return nil
 }
 
 func gcd(x, y int) int {

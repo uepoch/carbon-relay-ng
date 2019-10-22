@@ -17,7 +17,7 @@ type LoadBalance struct {
 // We will automatically run the route and the given destinations
 func NewLoadBalance(key string, matcher *matcher.Matcher, destinations []*dest.Destination) (Route, error) {
 	r := &LoadBalance{
-		baseRoute: *newBaseRoute(key, "LoadBalance", *matcher),
+		baseRoute: *newBaseRoute(key, "loadbalancing", *matcher),
 	}
 
 	s := selector.NewLVSSelector(r.logger)
@@ -47,9 +47,12 @@ func (route *LoadBalance) Add(d *dest.Destination) {
 }
 
 func (route *LoadBalance) Dispatch(d encoding.Datapoint) {
-	dest := route.selector.GetDestination()
-
-	route.logger.Debug("sending to dest", zap.String("destination_key", dest.Key), zap.Stringer("datapoint", d))
-	dest.In <- d
-	route.rm.OutMetrics.Inc()
+	if dest := route.selector.GetDestination(); dest != nil {
+		route.logger.Debug("sending to dest", zap.String("destination_key", dest.Key), zap.Stringer("datapoint", d))
+		dest.In <- d
+		route.rm.OutMetrics.Inc()
+	} else {
+		route.logger.Warn("unable to send point: no destination available")
+		route.rm.Errors.WithLabelValues("no destinations").Inc()
+	}
 }
