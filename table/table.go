@@ -755,7 +755,7 @@ func (table *Table) InitRoutes(config cfg.Config, meta toml.MetaData) error {
 				return fmt.Errorf("can't create the routing mutator: %s", err)
 			}
 
-			route, err := route.NewKafkaRoute(routeConfig.Key, routeConfig.Prefix, routeConfig.Substr, routeConfig.Regex, writerConfig, routingMutator)
+			route, err := route.NewKafkaRoute(routeConfig.Key, routeConfig.Prefix, routeConfig.Substr, routeConfig.Regex, writerConfig, routingMutator, routeConfig.Spool, table.GetSpoolDir())
 			if err != nil {
 				return fmt.Errorf("Failed to create route: %s", err)
 			}

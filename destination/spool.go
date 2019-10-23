@@ -11,8 +11,6 @@ import (
 	"go.uber.org/zap"
 )
 
-// sits in front of nsqd diskqueue.
-// provides buffering (to accept input while storage is slow / sync() runs -every 1000 items- etc)
 // QoS (RT vs Bulk) and controllable i/o rates
 type Spool struct {
 	key          string
@@ -91,7 +89,7 @@ func (s *Spool) Reader() {
 	h := encoding.NewPlain(false, false)
 	for {
 		if queue.Length() == 0 {
-			time.Sleep(500 * time.Millisecond)
+			time.Sleep(s.unspoolSleep)
 			continue
 		}
 		i, err := queue.Dequeue()
@@ -142,7 +140,6 @@ func (s *Spool) Ingest(bulkData []encoding.Datapoint) {
 }
 
 func (s *Spool) Buffer() {
-	chunk := make([]encoding.Datapoint, 0, s.chunkSize)
 	buf := make([]byte, 0, 200)
 	for {
 		select {
@@ -153,7 +150,6 @@ func (s *Spool) Buffer() {
 
 			pre := time.Now()
 			s.queue.Enqueue(dp.AppendToBuf(buf))
-			chunk = chunk[:0]
 			s.sm.WriteDuration.Observe(time.Since(pre).Seconds())
 		}
 	}
