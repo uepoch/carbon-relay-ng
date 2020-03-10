@@ -22,9 +22,10 @@ import (
 
 const (
 	namespace                      = "elasticsearch"
-	default_metrics_metadata_index = "biggraphite_metrics"
-	default_index_date_format      = "%Y_%U"
+	default_metrics_metadata_index = "biggraphite"
+	default_index_date_format      = "%Y-%m-%d"
 	directories_index_suffix       = "directories"
+	metrics_index_suffix           = "metrics"
 	metricsMapping                 = `
 {
 "_doc": {
@@ -192,7 +193,7 @@ func NewBgMetadataElasticSearchConnectorWithDefaults(cfg *cfg.BgMetadataESConfig
 	es, err := createElasticSearchClient(cfg.StorageServer, cfg.Username, cfg.Password)
 
 	if err != nil {
-		log.Fatalf("Could not create ElasticSearch connector: %w", err)
+		log.Fatalf("Could not create ElasticSearch connector: %v", err)
 	}
 
 	return newBgMetadataElasticSearchConnector(es, prometheus.DefaultRegisterer, cfg.BulkSize, cfg.MaxRetry, cfg.IndexName, cfg.IndexDateFmt)
@@ -357,7 +358,7 @@ func (esc *BgMetadataElasticSearchConnector) getIndicesNames() (metricIndexName,
 	if err != nil {
 		log.Fatalf("Index date format invalid strftime format: %s", err)
 	}
-	metricIndexName = fmt.Sprintf("%s_%s", esc.IndexName, date)
+	metricIndexName = fmt.Sprintf("%s_%s_%s", esc.IndexName, metrics_index_suffix, date)
 	directoryIndexName = fmt.Sprintf("%s_%s_%s", esc.IndexName, directories_index_suffix, date)
 	return
 }

@@ -260,8 +260,8 @@ setting                     | mandatory | values      | default       | descript
 sharding_factor             |     Y     |  int        | N/A           |  number of shards handling metrics
 filter_size                 |     Y     |  uint       | N/A           |  max total number of metrics
 fault_tolerance             |     Y     |  float      | N/A           |  transparent, value between 0.0 and 1.0
-clear_interval              |     Y     |  string     | N/A           |  frequency of filter clearing
-clear_wait                  |     Y     |  string     | N/A           |  wait time between each filter clear. defaults to clear_wait/sharding_factor
+clear_interval              |     Y     |  string     | N/A           |  frequency of filter clearing (all shards) do not set if clear_wait
+clear_wait                  |     Y     |  string     | N/A           |  wait time between each filter clear. defaults to clear_interval/sharding_factor
 storage_aggregations        |     Y     |  string     | N/A           |  biggraphite formated aggregation config path
 storage_schemas             |     Y     |  string     | N/A           |  biggraphite formated schemas config path 
 storage                     |     N     |  string     | ""            |  Storage backend to use either "cassandra" or "elasticsearch" 
@@ -278,8 +278,8 @@ bulk_size                   |     Y     |  uint       | N/A           | Maximum 
 username                    |     N     |  string     | ""            | let empty if no authentication
 password                    |     N     |  string     | ""            | let empty if no authentication
 max_retry                   |     N     |  uint       | 0             | maximum number of retry on http errors, let empty if no retry
-index_name                  |     N     |  string     | "biggraphite_metrics"             | Base name of the indices to be used, will append the date as suffix 
-index_date_fmt              |     N     |  string     | "%Y_%U"            | strftime format for the date suffix
+index_name                  |     N     |  string     | "biggraphite"             | Base name of the indices to be used, will append directory or metrics +  index_date_fmt formated
+index_date_fmt              |     N     |  string     | "%Y-%m-%d"            | strftime format for the date suffix
 
 #### Example
 The next example will create 2 indices weekly like metrics_2009_45  metrics_directories_2009_45

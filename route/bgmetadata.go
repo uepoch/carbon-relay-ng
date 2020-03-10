@@ -11,6 +11,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"strconv"
 	"sync"
 	"time"
 
@@ -142,6 +143,7 @@ func NewBgMetadataRoute(key, prefix, sub, regex, aggregationCfg, schemasCfg stri
 	m.ctx, m.cancel = context.WithCancel(context.Background())
 
 	m.mm = metrics.NewBgMetadataMetrics(key)
+	m.mm.BloomFilterMaxEntries.Set(float64(bfCfg.N))
 	m.rm = metrics.NewRouteMetrics(key, "bg_metadata", nil)
 
 	go m.clearBloomFilter()
@@ -168,8 +170,6 @@ func NewBgMetadataRoute(key, prefix, sub, regex, aggregationCfg, schemasCfg stri
 		Name:      "pending_storage_writes",
 		Help:      "number of pending storage write requests",
 	}, func() float64 { return float64(len(m.maxConcurrentWrites)) })
-
-	go m.createMetadataDirectories()
 
 	// matcher required to initialise route.Config for routing table, othewise it will panic
 	mt, err := matcher.New(prefix, sub, regex)
@@ -212,37 +212,34 @@ func (m *BgMetadata) clearBloomFilter() {
 	m.logger.Debug("starting goroutine for bloom filter cleanup")
 	m.wg.Add(1)
 	defer m.wg.Done()
-	t := time.NewTicker(m.bfCfg.ClearInterval)
-	defer t.Stop()
+	t := time.NewTicker(m.bfCfg.ClearWait)
 	for {
-		select {
-		case <-m.ctx.Done():
-			t.Stop()
-			return
-		case <-t.C:
-			for i := range m.shards {
-				// use array index to not copy lock
-				sh := &m.shards[i]
-				select {
-				case <-m.ctx.Done():
-					t.Stop()
-					return
-				default:
-					sh.lock.Lock()
-					if m.bfCfg.Cache != "" {
-						err := sh.saveShardState(m.bfCfg.Cache)
-						if err != nil {
-							m.logger.Error("cannot save shard state to filesystem", zap.Error(err))
-						}
-					}
-					m.logger.Debug("clearing filter for shard", zap.Int("shard_number", i+1))
-					sh.filter.ClearAll()
-					sh.lock.Unlock()
-					time.Sleep(m.bfCfg.ClearWait)
-				}
+		for i := range m.shards {
+			select {
+			case <-m.ctx.Done():
+				t.Stop()
+				return
+			case <-t.C:
+				m.clearBloomFilterShard(i)
 			}
 		}
 	}
+}
+
+func (m *BgMetadata) clearBloomFilterShard(shardNum int) {
+	sh := &m.shards[shardNum]
+	sh.lock.Lock()
+	if m.bfCfg.Cache != "" {
+		err := sh.saveShardState(m.bfCfg.Cache)
+		if err != nil {
+			m.logger.Error("cannot save shard state to filesystem", zap.Error(err))
+		}
+	}
+	m.logger.Info("clearing filter for shard", zap.Int("shard_number", shardNum+1))
+	sh.filter.ClearAll()
+	m.mm.BloomFilterEntries.DeleteLabelValues(strconv.Itoa(sh.num))
+	sh.lock.Unlock()
+	time.Sleep(m.bfCfg.ClearWait)
 }
 
 func (m *BgMetadata) saveFilterConfig() error {
@@ -314,22 +311,21 @@ func (m *BgMetadata) deleteCache() error {
 	return nil
 }
 
-func (m *BgMetadata) createMetadataDirectories() error {
-	m.wg.Add(1)
-	defer m.wg.Done()
-	dirFilter := bloom.NewWithEstimates(m.bfCfg.N, m.bfCfg.P)
-	for {
-		select {
-		case <-m.ctx.Done():
-			return nil
-		case dir := <-m.metricDirectories:
-			if !dirFilter.TestString(dir) {
-				dirFilter.AddString(dir)
-				md := storage.NewMetricDirectory(dir)
-				md.UpdateDirectories(m.storage)
-			}
-		}
+// testStringAndAdd will check if string present in bloom filters and add it if it's not
+// returns wether the string was in the BF or not
+// The shard is determined based on the name crc32 hash and sharding factor
+func (m *BgMetadata) testStringAndAdd(name string) bool {
+	shardNum := crc32.ChecksumIEEE([]byte(name)) % uint32(m.bfCfg.ShardingFactor)
+	shard := &m.shards[shardNum]
+	shard.lock.Lock()
+	defer shard.lock.Unlock()
+	if !shard.filter.TestString(name) {
+		m.mm.BloomFilterEntries.WithLabelValues(strconv.Itoa(shard.num)).Inc()
+		shard.filter.AddString(name)
+		return false
 	}
+	return true
+
 }
 
 // Shutdown cancels the context used in BgMetadata and goroutines
@@ -343,31 +339,47 @@ func (m *BgMetadata) Shutdown() error {
 }
 
 // Dispatch puts each datapoint metric name in a bloom filter
-// The channel is determined based on the name crc32 hash and sharding factor
 func (m *BgMetadata) Dispatch(dp encoding.Datapoint) {
 	// increase incoming metric prometheus counter
 	m.rm.InMetrics.Inc()
-	shardNum := crc32.ChecksumIEEE([]byte(dp.Name)) % uint32(m.bfCfg.ShardingFactor)
-	shard := &m.shards[shardNum]
-	shard.lock.Lock()
-	defer shard.lock.Unlock()
-	if !shard.filter.TestString(dp.Name) {
-		shard.filter.AddString(dp.Name)
+	if !m.testStringAndAdd(dp.Name) {
 		m.mm.AddedMetrics.Inc()
+		m.DispatchDirectory(dp)
 		metricMetadata := storage.NewMetricMetadata(dp.Name, m.storageSchemas, m.storageAggregations)
 		metric := storage.NewMetric(dp.Name, metricMetadata, dp.Tags)
 		// add metric name to directory channel for dirs to be created if needed in a separate goroutine
-		m.metricDirectories <- dp.Name
 		m.maxConcurrentWrites <- 1
+		m.wg.Add(1)
 		go func() {
 			m.storage.UpdateMetricMetadata(metric)
 			<-m.maxConcurrentWrites
+			m.wg.Done()
 		}()
 	} else {
 		// don't output metrics already in the filter
 		m.mm.FilteredMetrics.Inc()
 	}
 	return
+}
+
+// DispatchDirectory puts each datapoint directory name in a bloom filter
+func (m *BgMetadata) DispatchDirectory(dp encoding.Datapoint) {
+	dirname, err := dp.Directory()
+	if err != nil {
+		m.logger.Warn("No directory", zap.Error(err))
+	}
+
+	if !m.testStringAndAdd(dirname) {
+		directory := storage.NewMetricDirectory(dirname)
+		m.maxConcurrentWrites <- 1
+		m.wg.Add(1)
+		go func() {
+			directory.UpdateDirectories(m.storage)
+			<-m.maxConcurrentWrites
+			m.wg.Done()
+		}()
+	}
+
 }
 
 func (m *BgMetadata) Snapshot() Snapshot {

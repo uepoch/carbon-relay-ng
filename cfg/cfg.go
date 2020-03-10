@@ -17,7 +17,7 @@ type Config struct {
 	First_only          bool
 	Init                Init
 	Instance            string
-	Log_level           string
+	Log_level           string // unused
 	Bad_metrics_max_age string
 	Pid_file            string
 	BlackList           []string

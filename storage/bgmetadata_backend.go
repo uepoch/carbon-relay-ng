@@ -1,5 +1,7 @@
 package storage
 
+import "fmt"
+
 type BgMetadataStorageConnector interface {
 	UpdateMetricMetadata(metric *Metric) error
 	InsertDirectory(dir *MetricDirectory) error
@@ -9,16 +11,24 @@ type BgMetadataStorageConnector interface {
 
 // default connector, does nothing used for testing
 type BgMetadataNoOpStorageConnector struct {
+	UpdatedDirectories  []string
+	SelectedDirectories []string
+	UpdatedMetrics      []string
 }
 
 func (cc *BgMetadataNoOpStorageConnector) UpdateMetricMetadata(metric *Metric) error {
+	cc.UpdatedMetrics = append(cc.UpdatedMetrics, metric.name)
 	return nil
 }
 
 func (cc *BgMetadataNoOpStorageConnector) InsertDirectory(dir *MetricDirectory) error {
+	if dir.name != "" {
+		cc.UpdatedDirectories = append(cc.UpdatedDirectories, dir.name)
+	}
 	return nil
 }
 
 func (cc *BgMetadataNoOpStorageConnector) SelectDirectory(dir string) (string, error) {
-	return "", nil
+	cc.SelectedDirectories = append(cc.SelectedDirectories, dir)
+	return dir, fmt.Errorf("Directory not found")
 }

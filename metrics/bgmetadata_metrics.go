@@ -6,8 +6,10 @@ import (
 )
 
 type BgMetadataMetrics struct {
-	AddedMetrics    prometheus.Counter
-	FilteredMetrics prometheus.Counter
+	AddedMetrics          prometheus.Counter
+	FilteredMetrics       prometheus.Counter
+	BloomFilterEntries    *prometheus.CounterVec
+	BloomFilterMaxEntries prometheus.Gauge
 }
 
 const bgMetadataNamespace = "metadata"
@@ -30,5 +32,19 @@ func NewBgMetadataMetrics(id string) BgMetadataMetrics {
 		Help:        "total number of metrics filtered from adding to metadata",
 		ConstLabels: labels,
 	})
+
+	mm.BloomFilterEntries = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Namespace: namespace,
+		Name:      "bloom_filter_entries",
+		Help:      "number of entries in the bloom filter by shard",
+	}, []string{"shard"})
+
+	mm.BloomFilterMaxEntries = promauto.NewGauge(prometheus.GaugeOpts{
+		Namespace:   namespace,
+		Name:        "bloom_filter_max_entries",
+		Help:        "max entries on all shards",
+		ConstLabels: labels,
+	})
+	_ = prometheus.DefaultRegisterer.Register(mm.BloomFilterEntries)
 	return mm
 }

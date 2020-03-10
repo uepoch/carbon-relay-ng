@@ -28,8 +28,6 @@ func NewMetricDirectory(name string) *MetricDirectory {
 	}
 }
 
-// func (md *MetricDirectory) DoNothing() {}
-
 func (md *MetricDirectory) generateParentDirectories() []*MetricDirectory {
 	var path []string
 	var parents []*MetricDirectory
@@ -44,16 +42,18 @@ func (md *MetricDirectory) generateParentDirectories() []*MetricDirectory {
 // UpdateDirectories is a recursive function that will test missing directories
 // and insert them
 func (md *MetricDirectory) UpdateDirectories(storageConnector BgMetadataStorageConnector) error {
-	entry, err := storageConnector.SelectDirectory(md.name)
+	_, err := storageConnector.SelectDirectory(md.name)
 	if err != nil {
-		if entry != "" {
+		if md.parent != "" {
 			p := NewMetricDirectory(md.parent)
 			p.UpdateDirectories(storageConnector)
-			err = storageConnector.InsertDirectory(md)
-			if err != nil {
-				return fmt.Errorf("cannot insert metric directory: %s", err.Error())
-			}
 		}
+
+		err = storageConnector.InsertDirectory(md)
+		if err != nil {
+			return fmt.Errorf("cannot insert metric directory: %s", err.Error())
+		}
+
 	}
 	return nil
 }

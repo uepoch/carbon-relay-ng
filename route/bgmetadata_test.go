@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/graphite-ng/carbon-relay-ng/encoding"
+	"github.com/graphite-ng/carbon-relay-ng/storage"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -65,6 +66,25 @@ func TestMetricFiltering(t *testing.T) {
 	for i := 0; i < len(dp); i++ {
 		assert.False(t, m.shards[i].filter.TestString(dp[i].Name))
 	}
+}
+
+func TestMetricUpdated(t *testing.T) {
+	m := testBgMetadata(t)
+	m.Dispatch(encoding.Datapoint{Name: "metric.name.aaaa"})
+	m.Shutdown()
+	conn := m.storage.(*storage.BgMetadataNoOpStorageConnector)
+	assert.Contains(t, conn.UpdatedMetrics, "metric.name.aaaa")
+}
+
+func TestDirectoriesUpdated(t *testing.T) {
+	m := testBgMetadata(t)
+	m.Dispatch(encoding.Datapoint{Name: "metric.name.aaaa"})
+	m.Shutdown()
+	conn := m.storage.(*storage.BgMetadataNoOpStorageConnector)
+
+	assert.Contains(t, conn.UpdatedDirectories, "metric.name")
+	assert.Contains(t, conn.UpdatedDirectories, "metric")
+	assert.NotContains(t, conn.UpdatedDirectories, "metric.name.aaaa")
 }
 
 func TestClearWaitDefaultValue(t *testing.T) {

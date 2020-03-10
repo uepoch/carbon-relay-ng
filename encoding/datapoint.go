@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"sort"
 	"strconv"
+	"strings"
 )
 
 type Datapoint struct {
@@ -52,4 +53,13 @@ func (dp Datapoint) FullName() string {
 		return dp.Name
 	}
 
+}
+
+// Directory returns the name of parent directory
+func (dp Datapoint) Directory() (string, error) {
+	ind := strings.LastIndexByte(dp.Name, '.')
+	if ind < 0 {
+		return "", fmt.Errorf("Metric without directory %s", dp.Name)
+	}
+	return dp.Name[:ind], nil
 }
