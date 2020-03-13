@@ -8,9 +8,11 @@ import (
 	"time"
 
 	"github.com/segmentio/kafka-go"
+	"github.com/segmentio/kafka-go/gzip"
 	"github.com/segmentio/kafka-go/snappy"
 
 	"github.com/graphite-ng/carbon-relay-ng/encoding"
+	"github.com/graphite-ng/carbon-relay-ng/util"
 	"go.uber.org/zap"
 
 	"github.com/BurntSushi/toml"
@@ -408,37 +410,37 @@ func (table *Table) Print() (str string) {
 
 	t := table.Snapshot()
 	for _, rw := range t.Rewriters {
-		maxRWOld = max(maxRWOld, len(rw.Old))
-		maxRWNew = max(maxRWNew, len(rw.New))
-		maxRWNot = max(maxRWNot, len(rw.Not))
-		maxRWMax = max(maxRWMax, len(fmt.Sprintf("%d", rw.Max)))
+		maxRWOld = util.MaxInt(maxRWOld, len(rw.Old))
+		maxRWNew = util.MaxInt(maxRWNew, len(rw.New))
+		maxRWNot = util.MaxInt(maxRWNot, len(rw.Not))
+		maxRWMax = util.MaxInt(maxRWMax, len(fmt.Sprintf("%d", rw.Max)))
 	}
 	for _, black := range t.Blacklist {
-		maxBPrefix = max(maxBPrefix, len(black.Prefix))
-		maxBSub = max(maxBSub, len(black.Sub))
-		maxBRegex = max(maxBRegex, len(black.Regex))
+		maxBPrefix = util.MaxInt(maxBPrefix, len(black.Prefix))
+		maxBSub = util.MaxInt(maxBSub, len(black.Sub))
+		maxBRegex = util.MaxInt(maxBRegex, len(black.Regex))
 	}
 	for _, agg := range t.Aggregators {
-		maxAFunc = max(maxAFunc, len(agg.Fun))
-		maxARegex = max(maxARegex, len(agg.Regex))
-		maxAPrefix = max(maxAPrefix, len(agg.Prefix))
-		maxASub = max(maxASub, len(agg.Sub))
-		maxAOutFmt = max(maxAOutFmt, len(agg.OutFmt))
-		maxAInterval = max(maxAInterval, len(fmt.Sprintf("%d", agg.Interval)))
-		maxAwait = max(maxAwait, len(fmt.Sprintf("%d", agg.Wait)))
+		maxAFunc = util.MaxInt(maxAFunc, len(agg.Fun))
+		maxARegex = util.MaxInt(maxARegex, len(agg.Regex))
+		maxAPrefix = util.MaxInt(maxAPrefix, len(agg.Prefix))
+		maxASub = util.MaxInt(maxASub, len(agg.Sub))
+		maxAOutFmt = util.MaxInt(maxAOutFmt, len(agg.OutFmt))
+		maxAInterval = util.MaxInt(maxAInterval, len(fmt.Sprintf("%d", agg.Interval)))
+		maxAwait = util.MaxInt(maxAwait, len(fmt.Sprintf("%d", agg.Wait)))
 	}
 	for _, route := range t.Routes {
-		maxRType = max(maxRType, len(route.Type))
-		maxRKey = max(maxRKey, len(route.Key))
-		maxRPrefix = max(maxRPrefix, len(route.Matcher.Prefix))
-		maxRSub = max(maxRSub, len(route.Matcher.Sub))
-		maxRRegex = max(maxRRegex, len(route.Matcher.Regex))
+		maxRType = util.MaxInt(maxRType, len(route.Type))
+		maxRKey = util.MaxInt(maxRKey, len(route.Key))
+		maxRPrefix = util.MaxInt(maxRPrefix, len(route.Matcher.Prefix))
+		maxRSub = util.MaxInt(maxRSub, len(route.Matcher.Sub))
+		maxRRegex = util.MaxInt(maxRRegex, len(route.Matcher.Regex))
 		for _, dest := range route.Dests {
-			maxDPrefix = max(maxDPrefix, len(dest.Matcher.Prefix))
-			maxDSub = max(maxDSub, len(dest.Matcher.Sub))
-			maxDRegex = max(maxDRegex, len(dest.Matcher.Regex))
-			maxDAddr = max(maxDAddr, len(dest.Addr))
-			maxDSpoolDir = max(maxDSpoolDir, len(dest.SpoolDir))
+			maxDPrefix = util.MaxInt(maxDPrefix, len(dest.Matcher.Prefix))
+			maxDSub = util.MaxInt(maxDSub, len(dest.Matcher.Sub))
+			maxDRegex = util.MaxInt(maxDRegex, len(dest.Matcher.Regex))
+			maxDAddr = util.MaxInt(maxDAddr, len(dest.Addr))
+			maxDSpoolDir = util.MaxInt(maxDSpoolDir, len(dest.SpoolDir))
 		}
 	}
 	heaFmtRW := fmt.Sprintf("%%-%ds  %%-%ds  %%-%ds  %%-%ds\n", maxRWOld, maxRWNew, maxRWNot, maxRWMax)
@@ -481,8 +483,8 @@ func (table *Table) Print() (str string) {
 	cols = fmt.Sprintf(heaFmtR, "type", "key", "prefix", "substr", "regex")
 	rcols := fmt.Sprintf(heaFmtD, "prefix", "substr", "regex", "addr", "spoolDir", "spool", "pickle", "online")
 	indent := "  "
-	str += cols + underscore(max(len(cols), len(rcols)+len(indent))-1)
-	divider := indent + strings.Repeat("-", max(len(cols)-len(indent), len(rcols))-1) + "\n"
+	str += cols + underscore(util.MaxInt(len(cols), len(rcols)+len(indent))-1)
+	divider := indent + strings.Repeat("-", util.MaxInt(len(cols)-len(indent), len(rcols))-1) + "\n"
 
 	for _, route := range t.Routes {
 		m := route.Matcher
@@ -686,7 +688,6 @@ func (table *Table) InitRoutes(config cfg.Config, meta toml.MetaData) error {
 			}
 			table.AddRoute(route)
 		case "kafka":
-
 			kafkaCfg := routeConfig.Kafka
 			if kafkaCfg == nil {
 				return fmt.Errorf("error adding route '%s': kafka config is not specified", routeConfig.Key)
@@ -697,6 +698,8 @@ func (table *Table) InitRoutes(config cfg.Config, meta toml.MetaData) error {
 				fallthrough
 			case "":
 				codec = nil
+			case "gzip":
+				codec = gzip.NewCompressionCodec()
 			case "snappy":
 				codec = snappy.NewCompressionCodec()
 			default:
@@ -736,8 +739,85 @@ func (table *Table) InitRoutes(config cfg.Config, meta toml.MetaData) error {
 			}
 
 			route, err := route.NewKafkaRoute(routeConfig.Key, routeConfig.Prefix, routeConfig.Substr, routeConfig.Regex, writerConfig, routingMutator)
+			if err != nil {
+				return fmt.Errorf("Failed to create route: %s", err)
+			}
 			table.AddRoute(route)
+		case "bg_metadata":
+			bgMetadataCfg := routeConfig.BgMetadata
+			if bgMetadataCfg == nil {
+				return fmt.Errorf("error adding route '%s': bg_metadata config is not specified", routeConfig.Key)
+			}
+			if bgMetadataCfg.ShardingFactor == 0 {
+				return fmt.Errorf("error adding route '%s': sharding factor must be specified", routeConfig.Key)
+			}
+			if bgMetadataCfg.FilterSize == 0 {
+				return fmt.Errorf("error adding route '%s': filter size must be specified", routeConfig.Key)
+			}
+			if bgMetadataCfg.FaultTolerance == 0 {
+				return fmt.Errorf("error adding route '%s': fault tolerance percentage must be specified", routeConfig.Key)
+			}
+			if bgMetadataCfg.FaultTolerance <= 0 || bgMetadataCfg.FaultTolerance >= 1 {
+				return fmt.Errorf("error adding route '%s': fault tolerance value must be between 0 and 1", routeConfig.Key)
+			}
 
+			if bgMetadataCfg.ClearInterval == "" {
+				return fmt.Errorf("error adding route '%s': clear interval value must be specified", routeConfig.Key)
+			}
+
+			clearInterval, err := time.ParseDuration(bgMetadataCfg.ClearInterval)
+			if err != nil {
+				return fmt.Errorf("error adding route '%s': could not parse clear_interval", routeConfig.Key)
+			}
+
+			// clearWait is not required, so it's only parsed if it's defined
+			// if undefined, it's set to clearInterval/ShardingFactor as default
+			var clearWait time.Duration
+			if bgMetadataCfg.ClearWait != "" {
+				clearWait, err = time.ParseDuration(bgMetadataCfg.ClearWait)
+				if err != nil {
+					return fmt.Errorf("error adding route '%s': could not parse clear_wait", routeConfig.Key)
+				}
+			}
+
+			if clearWait > clearInterval/time.Duration(bgMetadataCfg.ShardingFactor) {
+				return fmt.Errorf("error adding route '%s': clear wait value must be less than clear_interval / sharding_factor", routeConfig.Key)
+			}
+			var additionnalCfg interface{} = nil
+			if bgMetadataCfg.Storage != "cassandra" && bgMetadataCfg.Storage != "elasticsearch" && bgMetadataCfg.Storage != "" {
+				return fmt.Errorf("error adding route '%s': storage value must be 'cassandra', 'elasticsearch' or ''", routeConfig.Key)
+			}
+
+			if bgMetadataCfg.Storage == "elasticsearch" {
+				if bgMetadataCfg.ESConfig == nil {
+					return fmt.Errorf("error adding route '%s': ElasticSearch configuration is needed", routeConfig.Key)
+				}
+				if bgMetadataCfg.ESConfig.StorageServer == "" {
+					return fmt.Errorf("error adding route '%s': undefined storage server", routeConfig.Key)
+				}
+				if bgMetadataCfg.ESConfig.BulkSize == 0 {
+					return fmt.Errorf("error adding route '%s': elasticsearch bulk size must be > 0 (not %d)", routeConfig.Key, bgMetadataCfg.ESConfig.BulkSize)
+				}
+
+				additionnalCfg = bgMetadataCfg.ESConfig
+			}
+
+			bloomFilterConfig, err := route.NewBloomFilterConfig(
+				bgMetadataCfg.FilterSize,
+				bgMetadataCfg.FaultTolerance,
+				bgMetadataCfg.ShardingFactor,
+				bgMetadataCfg.Cache,
+				clearInterval,
+				clearWait,
+			)
+			if err != nil {
+				return fmt.Errorf("error adding route '%s': %s", routeConfig.Key, err)
+			}
+			route, err := route.NewBgMetadataRoute(routeConfig.Key, routeConfig.Prefix, routeConfig.Substr, routeConfig.Regex, bgMetadataCfg.StorageAggregationConfig, bgMetadataCfg.StorageSchemasConfig, bloomFilterConfig, bgMetadataCfg.Storage, additionnalCfg)
+			if err != nil {
+				return fmt.Errorf("error adding route '%s': %s", routeConfig.Key, err)
+			}
+			table.AddRoute(route)
 		default:
 			return fmt.Errorf("unrecognized route type '%s'", routeConfig.Type)
 		}

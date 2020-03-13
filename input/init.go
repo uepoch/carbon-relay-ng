@@ -32,19 +32,19 @@ func (b *BaseInput) Format() encoding.FormatName {
 	return b.handler.Kind()
 }
 
-func (b *BaseInput) handleReader(r io.Reader) error {
+func (b *BaseInput) handleReader(r io.Reader, tags encoding.Tags) error {
 	scanner := bufio.NewScanner(r)
 	for scanner.Scan() {
-		b.handle(scanner.Bytes())
+		b.handle(scanner.Bytes(), tags)
 	}
 	return scanner.Err()
 }
 
-func (b *BaseInput) handle(msg []byte) error {
+func (b *BaseInput) handle(msg []byte, tags encoding.Tags) error {
 	if len(msg) == 0 {
 		return nil
 	}
-	d, err := b.handler.Load(msg)
+	d, err := b.handler.Load(msg, tags)
 	if err != nil {
 		return fmt.Errorf("error while processing `%s`: %s", string(msg), err)
 	}

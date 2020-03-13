@@ -1,0 +1,17 @@
+version: "3.7"
+
+services:
+  kafka-producer:
+    ports:
+      - "4000:4000"
+    image: carbon-relay-ng
+    volumes:
+      - ./config:/config/
+    command: -debug /config/kafka-output.toml
+
+  kafka-consumer:
+    image: carbon-relay-ng
+    volumes:
+      - ./config:/config/
+    command: -debug /config/kafka-input.toml
+
