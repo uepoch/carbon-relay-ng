@@ -111,11 +111,23 @@ func (k *Kafka) Cleanup(sarama.ConsumerGroupSession) error {
 	return nil
 }
 
+func (k *Kafka) getKafkaTags(header []*sarama.RecordHeader) map[string]string {
+	tags := make(map[string]string)
+	for i := 0; i < len(header); i++ {
+		key := string(header[i].Key)
+		value := string(header[i].Value)
+		k.logger.Debug("tags print", zap.String("key", key), zap.String("value", value))
+		tags[key] = value
+	}
+	return tags
+}
+
 // ConsumeClaim must start a consumer loop of ConsumerGroupClaim's Messages().
 func (k *Kafka) ConsumeClaim(session sarama.ConsumerGroupSession, claim sarama.ConsumerGroupClaim) error {
 	for message := range claim.Messages() {
 		k.logger.Debug("metric value:", zap.ByteString("messageValue", message.Value))
-		if err := k.handle(message.Value); err != nil {
+		tags := k.getKafkaTags(message.Headers)
+		if err := k.handle(message.Value, tags); err != nil {
 			k.logger.Debug("invalid message from kafka", zap.ByteString("messageValue", message.Value))
 		}
 		session.MarkMessage(message, "")

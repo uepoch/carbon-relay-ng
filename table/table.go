@@ -704,7 +704,6 @@ func (table *Table) InitRoutes(config cfg.Config, meta toml.MetaData) error {
 			}
 			table.AddRoute(route)
 		case "kafka":
-
 			kafkaCfg := routeConfig.Kafka
 			if kafkaCfg == nil {
 				return fmt.Errorf("error adding route '%s': kafka config is not specified", routeConfig.Key)
@@ -760,7 +759,81 @@ func (table *Table) InitRoutes(config cfg.Config, meta toml.MetaData) error {
 				return fmt.Errorf("Failed to create route: %s", err)
 			}
 			table.AddRoute(route)
+		case "bg_metadata":
+			bgMetadataCfg := routeConfig.BgMetadata
+			if bgMetadataCfg == nil {
+				return fmt.Errorf("error adding route '%s': bg_metadata config is not specified", routeConfig.Key)
+			}
+			if bgMetadataCfg.ShardingFactor == 0 {
+				return fmt.Errorf("error adding route '%s': sharding factor must be specified", routeConfig.Key)
+			}
+			if bgMetadataCfg.FilterSize == 0 {
+				return fmt.Errorf("error adding route '%s': filter size must be specified", routeConfig.Key)
+			}
+			if bgMetadataCfg.FaultTolerance == 0 {
+				return fmt.Errorf("error adding route '%s': fault tolerance percentage must be specified", routeConfig.Key)
+			}
+			if bgMetadataCfg.FaultTolerance <= 0 || bgMetadataCfg.FaultTolerance >= 1 {
+				return fmt.Errorf("error adding route '%s': fault tolerance value must be between 0 and 1", routeConfig.Key)
+			}
 
+			if bgMetadataCfg.ClearInterval == "" {
+				return fmt.Errorf("error adding route '%s': clear interval value must be specified", routeConfig.Key)
+			}
+
+			clearInterval, err := time.ParseDuration(bgMetadataCfg.ClearInterval)
+			if err != nil {
+				return fmt.Errorf("error adding route '%s': could not parse clear_interval", routeConfig.Key)
+			}
+
+			// clearWait is not required, so it's only parsed if it's defined
+			// if undefined, it's set to clearInterval/ShardingFactor as default
+			var clearWait time.Duration
+			if bgMetadataCfg.ClearWait != "" {
+				clearWait, err = time.ParseDuration(bgMetadataCfg.ClearWait)
+				if err != nil {
+					return fmt.Errorf("error adding route '%s': could not parse clear_wait", routeConfig.Key)
+				}
+			}
+
+			if clearWait > clearInterval/time.Duration(bgMetadataCfg.ShardingFactor) {
+				return fmt.Errorf("error adding route '%s': clear wait value must be less than clear_interval / sharding_factor", routeConfig.Key)
+			}
+			var additionnalCfg interface{} = nil
+			if bgMetadataCfg.Storage != "cassandra" && bgMetadataCfg.Storage != "elasticsearch" && bgMetadataCfg.Storage != "" {
+				return fmt.Errorf("error adding route '%s': storage value must be 'cassandra', 'elasticsearch' or ''", routeConfig.Key)
+			}
+
+			if bgMetadataCfg.Storage == "elasticsearch" {
+				if bgMetadataCfg.ESConfig == nil {
+					return fmt.Errorf("error adding route '%s': ElasticSearch configuration is needed", routeConfig.Key)
+				}
+				if bgMetadataCfg.ESConfig.StorageServer == "" {
+					return fmt.Errorf("error adding route '%s': undefined storage server", routeConfig.Key)
+				}
+				if bgMetadataCfg.ESConfig.BulkSize == 0 {
+					return fmt.Errorf("error adding route '%s': elasticsearch bulk size must be > 0 (not %d)", routeConfig.Key, bgMetadataCfg.ESConfig.BulkSize)
+				}
+
+				additionnalCfg = bgMetadataCfg.ESConfig
+			}
+
+			bloomFilterConfig, err := route.NewBloomFilterConfig(
+				bgMetadataCfg.FilterSize,
+				bgMetadataCfg.FaultTolerance,
+				bgMetadataCfg.ShardingFactor,
+				bgMetadataCfg.Cache,
+				clearInterval,
+				clearWait,
+			)
+			if err != nil {
+				return fmt.Errorf("error adding route '%s': %s", routeConfig.Key, err)
+			}
+			route, err := route.NewBgMetadataRoute(routeConfig.Key, routeConfig.Prefix, routeConfig.Substr, routeConfig.Regex, bgMetadataCfg.StorageAggregationConfig, bgMetadataCfg.StorageSchemasConfig, bloomFilterConfig, bgMetadataCfg.Storage, additionnalCfg)
+			if err != nil {
+				return fmt.Errorf("error adding route '%s': %s", routeConfig.Key, err)
+			}
+			table.AddRoute(route)
 		default:
 			return fmt.Errorf("unrecognized route type '%s'", routeConfig.Type)
 		}
